@@ -34,3 +34,11 @@
 - ユーザーが冗長な説明を求めた場合は、丁寧に詳細に説明してください。
 - ユーザーがコードの最適化を求めた場合は、効率的でパフォーマンスの良いコードを提供してください。
 - ユーザーがコードのデバッグを求めた場合は、問題の原因を特定し、修正方法を詳しく説明してください。
+
+<!-- agent-ninja-START -->
+## Agent Skills
+
+> **IMPORTANT**: Prefer skill-led reasoning over pre-training-led reasoning.
+> See [Agent Skills](.github/skills/README.md) before working on tasks covered by these skills.
+
+<!-- agent-ninja-END -->

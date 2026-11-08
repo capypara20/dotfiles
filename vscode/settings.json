@@ -6,7 +6,6 @@
 	"security.promptForLocalFileProtocolHandling": false,
 	// タブを切り替えてもエクスプローラーを追従させない
 	"explorer.autoReveal": false,
-
 	// =====================================================================
 	// ここから下はリモート版の設定（preview の 15 行目以降）
 	// =====================================================================
@@ -107,19 +106,12 @@
 	"editor.fontSize": 14,
 	"breadcrumbs.enabled": true,
 	"window.titleBarStyle": "custom",
-	"vim.insertModeKeyBindings": [
-		{
-			"before": [
-				"j",
-				"j"
-			],
-			"after": [
-				"<Esc>"
-			]
+	"vscode-neovim.compositeKeys": {
+		"jj": {
+			"command": "vscode-neovim.escape",
+			"args": []
 		}
-	],
-	"vim.hlsearch": true,
-	"vim.useSystemClipboard": true,
+	},
 	"files.autoSave": "afterDelay",
 	"editor.formatOnPaste": true,
 	"editor.formatOnSave": true,
@@ -133,7 +125,7 @@
 		"scminput": false,
 		"html": true,
 		"python": true,
-		"rust": true,
+		"rust": false,
 		"instructions": true
 	},
 	"workbench.editor.empty.hint": "hidden",
@@ -192,8 +184,6 @@
 			"matchCommandLine": true
 		}
 	},
-	"accessibility.voice.speechLanguage": "ja-JP",
-	"accessibility.voice.autoSynthesize": "on",
 	"explorer.confirmPasteNative": false,
 	// [競合] ローカルは 250 だった
 	"glassit.alpha": 255,
@@ -202,7 +192,6 @@
 	"rust-analyzer.inlayHints.typeHints.enable": true,
 	"rust-analyzer.inlayHints.parameterHints.enable": true,
 	"rust-analyzer.inlayHints.chainingHints.enable": true,
-	"workbench.activityBar.location": "top",
 	"editor.minimap.autohide": "scroll",
 	"chat.viewSessions.orientation": "stacked",
 	"editor.mouseWheelZoom": true,
@@ -210,5 +199,81 @@
 	"extensions.experimental.affinity": {
 		"asvetliakov.vscode-neovim": 1
 	},
-	"github.copilot.chat.agentDebugLog.fileLogging.enabled": true
+	"github.copilot.chat.agentDebugLog.fileLogging.enabled": true,
+	"markdown.marp.html": "all",
+	"workbench.secondarySideBar.showLabels": false,
+	"workbench.activityBar.location": "top",
+	"hediet.vscode-drawio.theme": "auto",
+	"hediet.vscode-drawio.appearance": "dark",
+	"editor.accessibilitySupport": "on",
+	"accessibility.signals.chatResponseReceived": {
+		"sound": "off"
+	},
+	"accessibility.signals.chatUserActionRequired": {
+		"sound": "off",
+		"announcement": "off"
+	},
+	"accessibility.signals.chatEditModifiedFile": {
+		"sound": "off"
+	},
+	"accessibility.signals.lineHasError": {
+		"sound": "off"
+	},
+	"accessibility.signals.save": {
+		"sound": "never"
+	},
+	"accessibility.signals.chatRequestSent": {
+		"announcement": "off",
+		"sound": "off"
+	},
+	"accessibility.signals.clear": {
+		"sound": "off",
+		"announcement": "off"
+	},
+	"accessibility.signals.codeActionApplied": {
+		"sound": "off"
+	},
+	"accessibility.signals.codeActionTriggered": {
+		"sound": "off"
+	},
+	"accessibility.signals.confetti": {
+		"sound": "off"
+	},
+	"accessibility.signals.diffLineDeleted": {
+		"sound": "off"
+	},
+	"accessibility.signals.diffLineInserted": {
+		"sound": "off"
+	},
+	"accessibility.signals.terminalCommandSucceeded": {
+		"sound": "off"
+	},
+	"accessibility.signals.terminalCommandFailed": {
+		"sound": "off"
+	},
+	"accessibility.signals.taskCompleted": {
+		"sound": "off"
+	},
+	"accessibility.signals.taskFailed": {
+		"sound": "off"
+	},
+	"accessibility.signals.lineHasInlineSuggestion": {
+		"sound": "off"
+	},
+	"accessibility.signals.diffLineModified": {
+		"sound": "off"
+	},
+	"accessibility.signals.editsKept": {
+		"sound": "off",
+		"announcement": "off"
+	},
+	"accessibility.signals.editsUndone": {
+		"announcement": "off",
+		"sound": "off"
+	},
+	"accessibility.signals.lineHasBreakpoint": {
+		"sound": "off",
+		"announcement": "off"
+	},
+	"accessibility.signalOptions.volume": 0
 }

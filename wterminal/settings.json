@@ -12,12 +12,12 @@
             "keys": "ctrl+c"
         },
         {
-            "id": "Terminal.FindText",
-            "keys": "ctrl+shift+f"
-        },
-        {
             "id": "Terminal.PasteFromClipboard",
             "keys": "ctrl+v"
+        },
+        {
+            "id": "Terminal.FindText",
+            "keys": "ctrl+shift+f"
         },
         {
             "id": "Terminal.DuplicatePaneAuto",
@@ -98,6 +98,12 @@
                 "guid": "{8221283a-2e3f-59c8-a649-dbc223b12c1a}",
                 "hidden": false,
                 "name": "Ubuntu-24.04",
+                "source": "Microsoft.WSL"
+            },
+            {
+                "guid": "{bfb9c916-41b1-5f29-9586-d08f2c09de20}",
+                "hidden": false,
+                "name": "kali-linux",
                 "source": "Microsoft.WSL"
             }
         ]

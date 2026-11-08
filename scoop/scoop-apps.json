@@ -1,181 +1,217 @@
 {
-  "buckets": [
-    {
-      "Name": "main",
-      "Source": "https://github.com/ScoopInstaller/Main"
-    },
-    {
-      "Name": "extras",
-      "Source": "https://github.com/ScoopInstaller/Extras"
-    },
-    {
-      "Name": "nerd-fonts",
-      "Source": "https://github.com/matthewjberger/scoop-nerd-fonts"
-    },
-    {
-      "Name": "java",
-      "Source": "https://github.com/ScoopInstaller/Java"
-    },
-    {
-      "Name": "psmux",
-      "Source": "https://github.com/psmux/scoop-psmux"
-    }
-  ],
-  "apps": [
-    {
-      "Name": "7zip",
-      "Source": "main",
-      "Info": ""
-    },
-    {
-      "Name": "bat",
-      "Source": "main",
-      "Info": ""
-    },
-    {
-      "Name": "btop",
-      "Source": "main",
-      "Info": ""
-    },
-    {
-      "Name": "curl",
-      "Source": "main",
-      "Info": ""
-    },
-    {
-      "Name": "dark",
-      "Source": "main",
-      "Info": ""
-    },
-    {
-      "Name": "delta",
-      "Source": "main",
-      "Info": ""
-    },
-    {
-      "Name": "deno",
-      "Source": "main",
-      "Info": ""
-    },
-    {
-      "Name": "draw.io",
-      "Source": "extras",
-      "Info": ""
-    },
-    {
-      "Name": "fd",
-      "Source": "main",
-      "Info": ""
-    },
-    {
-      "Name": "fzf",
-      "Source": "main",
-      "Info": ""
-    },
-    {
-      "Name": "gcc",
-      "Source": "main",
-      "Info": ""
-    },
-    {
-      "Name": "gh",
-      "Source": "main",
-      "Info": ""
-    },
-    {
-      "Name": "ghidra",
-      "Source": "extras",
-      "Info": ""
-    },
-    {
-      "Name": "git",
-      "Source": "main",
-      "Info": ""
-    },
-    {
-      "Name": "grep",
-      "Source": "main",
-      "Info": ""
-    },
-    {
-      "Name": "imhex",
-      "Source": "extras",
-      "Info": ""
-    },
-    {
-      "Name": "jq",
-      "Source": "main",
-      "Info": ""
-    },
-    {
-      "Name": "lazygit",
-      "Source": "extras",
-      "Info": ""
-    },
-    {
-      "Name": "make",
-      "Source": "main",
-      "Info": ""
-    },
-    {
-      "Name": "neovim",
-      "Source": "main",
-      "Info": ""
-    },
-    {
-      "Name": "nvm",
-      "Source": "main",
-      "Info": ""
-    },
-    {
-      "Name": "openjdk21",
-      "Source": "java",
-      "Info": ""
-    },
-    {
-      "Name": "openssh",
-      "Source": "main",
-      "Info": ""
-    },
-    {
-      "Name": "psmux",
-      "Source": "main",
-      "Info": ""
-    },
-    {
-      "Name": "pwsh",
-      "Source": "main",
-      "Info": ""
-    },
-    {
-      "Name": "python",
-      "Source": "main",
-      "Info": ""
-    },
-    {
-      "Name": "ripgrep",
-      "Source": "main",
-      "Info": ""
-    },
-    {
-      "Name": "rustup",
-      "Source": "main",
-      "Info": ""
-    },
-    {
-      "Name": "sed",
-      "Source": "main",
-      "Info": ""
-    },
-    {
-      "Name": "thunderbird",
-      "Source": "extras",
-      "Info": ""
-    },
-    {
-      "Name": "touch",
-      "Source": "main",
-      "Info": ""
-    }
-  ]
+    "buckets":  [
+                    {
+                        "Name":  "main",
+                        "Source":  "https://github.com/ScoopInstaller/Main"
+                    },
+                    {
+                        "Name":  "extras",
+                        "Source":  "https://github.com/ScoopInstaller/Extras"
+                    },
+                    {
+                        "Name":  "nerd-fonts",
+                        "Source":  "https://github.com/matthewjberger/scoop-nerd-fonts"
+                    },
+                    {
+                        "Name":  "java",
+                        "Source":  "https://github.com/ScoopInstaller/Java"
+                    },
+                    {
+                        "Name":  "copilot-worktrees",
+                        "Source":  "~\\scoop\\buckets\\copilot-worktrees"
+                    },
+                    {
+                        "Name":  "dotfiles",
+                        "Source":  "https://github.com/capypara20/dotfiles.git"
+                    },
+                    {
+                        "Name":  "pkcs11-intro",
+                        "Source":  "https://github.com/capypara20/pkcs11-intro.git"
+                    },
+                    {
+                        "Name":  "psmux",
+                        "Source":  "https://github.com/psmux/scoop-psmux"
+                    },
+                    {
+                        "Name":  "rust-folder-watcher",
+                        "Source":  "https://github.com/capypara20/rust-folder-watcher.git"
+                    }
+                ],
+    "apps":  [
+                 {
+                     "Name":  "7zip",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "bat",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "btop",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "curl",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "dark",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "delta",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "deno",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "docker",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "docker-compose",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "dotnet-sdk",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "draw.io",
+                     "Source":  "extras",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "fd",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "fzf",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "gcc",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "gh",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "ghidra",
+                     "Source":  "extras",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "git",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "grep",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "imhex",
+                     "Source":  "extras",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "innounp",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "jq",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "lazygit",
+                     "Source":  "extras",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "make",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "neovim",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "nvm",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "openjdk21",
+                     "Source":  "java",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "openssh",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "psmux",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "pwsh",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "python",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "ripgrep",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "rustup",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "sed",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "thunderbird",
+                     "Source":  "extras",
+                     "Info":  ""
+                 },
+                 {
+                     "Name":  "touch",
+                     "Source":  "main",
+                     "Info":  ""
+                 }
+             ]
 }
