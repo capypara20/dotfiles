@@ -3,7 +3,7 @@
 Windows と Linux の両方で、同じ設定ファイルを使い回すためのリポジトリ。
 
 新しいPCでは **クローン → スクリプトを1回実行** するだけで、
-nvim・PowerShell・VSCode・scoop の環境が揃う。
+nvim・PowerShell・VSCode・scoop・フォントの環境が揃う。
 
 ---
 
@@ -98,8 +98,10 @@ cd "$HOME\dotfiles"
 
 やること:
 1. `XDG_CONFIG_HOME` を `~\.config` に設定（未設定の場合のみ）
-2. scoop が無ければインストール → バケット追加 → アプリを一括インストール
-3. 設定ファイルを各アプリの場所へコピー
+2. scoop が無ければインストール → git が無ければ先に入れる → バケット追加 → アプリを一括インストール
+   （バケット追加には git が必要なため、この順番にしている）
+3. `RobotoMono Nerd Font` が無ければダウンロードしてインストール（管理者権限は不要）
+4. 設定ファイルを各アプリの場所へコピー
 
 **Linux:**
 
@@ -108,6 +110,11 @@ git clone https://github.com/capypara20/dotfiles.git ~/dotfiles
 cd ~/dotfiles
 bash install.sh
 ```
+
+やること:
+1. `RobotoMono Nerd Font` が無ければ `~/.local/share/fonts` にインストール
+   （fontconfig が無い＝画面を持たない環境では飛ばす）
+2. 設定ファイルを各アプリの場所へコピー
 
 ### 設定を変更したあと（リポジトリに取り込む）
 
@@ -137,9 +144,43 @@ git pull
 | オプション | 意味 |
 |---|---|
 | `.\install.ps1 -DryRun` | 何が起きるか表示するだけ（実際には変更しない） |
-| `.\install.ps1 -SkipScoop` | scoop 関連を飛ばして、設定ファイルのコピーだけ |
+| `.\install.ps1 -SkipScoop` | scoop 関連を飛ばす（フォントは入っていなければ入れる） |
+| `.\install.ps1 -SkipFonts` | フォントのインストールを飛ばす |
 | `.\sync.ps1 -DryRun` | 同上（取り込みの予行演習） |
 | `bash install.sh --dry-run` | Linux 版の予行演習 |
+| `bash install.sh --skip-fonts` | Linux 版でフォントのインストールを飛ばす |
+
+---
+
+## フォントの自動インストール
+
+Windows Terminal の設定は `RobotoMono Nerd Font` を使っている。
+フォントが無いPCではアイコンが □ になるので、install スクリプトが自動で入れる。
+
+```
+install.ps1 / install.sh
+   │
+   ├─ RobotoMono Nerd Font はもう入っている？ ── はい ──▶ 何もしない
+   │                 │
+   │               いいえ
+   │                 ▼
+   │   GitHub（ryanoasis/nerd-fonts）の最新リリースから
+   │   RobotoMono.tar.xz（約4MB）をダウンロード
+   │   ※ Windows で tar が xz 非対応なら RobotoMono.zip（約50MB）
+   │                 ▼
+   │   通常版 RobotoMonoNerdFont-*.ttf だけを取り出す（12ファイル）
+   │   （Mono版・Propo版は入れない）
+   │                 ▼
+   └─ このユーザー専用の場所にインストール（管理者権限・sudo 不要）
+        Windows : %LOCALAPPDATA%\Microsoft\Windows\Fonts + レジストリ(HKCU)に登録
+        Linux   : ~/.local/share/fonts + fc-cache
+```
+
+- **フォントを増やしたいとき** は、`install.ps1` の `$Fonts` と
+  `install.sh` の `install_font` の行に1行ずつ足す。
+  名前は [Nerd Fonts のリリース](https://github.com/ryanoasis/nerd-fonts/releases) にあるファイル名を使う
+- ダウンロードに失敗しても警告を出すだけで、設定ファイルの配置は続ける
+- 入れたあとは **Windows Terminal を再起動** すると新しいフォントで表示される
 
 ---
 
@@ -200,9 +241,8 @@ C:\Users\capypara20\.config\nvim  (main*)
   Git 管理下なので `git checkout` で戻せる。
 - **scoop のアプリ一覧はバージョンを含めない。** 新しいPCでは常に最新版が入る。
   グローバルインストール（管理者権限が必要なもの）は一覧から除外している。
-- **フォントは scoop で管理しない。** Nerd Font は手動でインストールする方針。
-  Windows Terminal の設定には `RobotoMono Nerd Font` が入っているので、
-  フォントを入れていないPCでは文字が □ になる。先にフォントを入れること。
+- **フォントは scoop で管理しない。** install スクリプトが GitHub から直接入れる
+  （`-SkipScoop` を付けても入る）。詳しくは「フォントの自動インストール」を参照。
 - **Windows Terminal は開いたまま install すると設定が戻ることがある。**
   終了時に、起動中に保持していた内容で書き戻されるため。
   反映されないときは Windows Terminal を再起動する。

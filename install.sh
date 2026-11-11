@@ -8,8 +8,9 @@
 # 使い方:
 #   git clone https://github.com/capypara20/dotfiles.git ~/dotfiles
 #   cd ~/dotfiles
-#   bash install.sh            # 配置する
-#   bash install.sh --dry-run  # 何が起きるか表示するだけ
+#   bash install.sh               # 配置する
+#   bash install.sh --skip-fonts  # フォントのインストールを飛ばす
+#   bash install.sh --dry-run     # 何が起きるか表示するだけ
 #
 # 逆方向（今のPCの設定をリポジトリに取り込む）は sync.sh を使う。
 # ==================================================================
@@ -22,10 +23,20 @@ DOTDIR="$(cd "$(dirname "$0")" && pwd)"
 # 設定ファイルの置き場所（Windows 側と揃える）
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 
-# --dry-run が付いていたら、実際の変更はしない
+# オプションを読む
+#   --dry-run    : 実際の変更はしない（表示だけ）
+#   --skip-fonts : フォントのインストールを飛ばす
+# 打ち間違い（--dryrun など）で本当に実行されないよう、知らないものはエラーにする
 DRYRUN=0
-if [ "${1:-}" = "--dry-run" ]; then
-  DRYRUN=1
+SKIPFONTS=0
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run)    DRYRUN=1 ;;
+    --skip-fonts) SKIPFONTS=1 ;;
+    *) echo "知らないオプションです: $arg" >&2; exit 1 ;;
+  esac
+done
+if [ "$DRYRUN" -eq 1 ]; then
   echo "*** DryRun モード: 実際には何も変更しません ***"
 fi
 
@@ -63,6 +74,90 @@ deploy() {
   fi
   ok "$label"
 }
+
+# ==================================================================
+# フォント（Nerd Font）
+#   入っていなければ Nerd Fonts 公式の GitHub リリースから取ってきて
+#   ~/.local/share/fonts に入れる（このユーザー専用なので sudo 不要）。
+#
+#   fontconfig（fc-list）が無い = 画面を持たない Linux なので飛ばす。
+#   ※ WSL の画面は Windows Terminal が描くので、WSL で効くのは
+#     Windows 側のフォント（install.ps1 が入れる）の方。
+# ==================================================================
+FONT_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/fonts"
+FONT_ADDED=0
+
+# URL のファイルを保存する（curl が無ければ wget を使う）
+download() {
+  url="$1"; out="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL -o "$out" "$url"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q -O "$out" "$url"
+  else
+    echo "  !!   curl も wget も無いのでダウンロードできません" >&2
+    return 1
+  fi
+}
+
+# フォントを1種類入れる
+# 引数: フォント名 アーカイブ名(拡張子なし) 取り出すファイル(* 可)
+install_font() {
+  family="$1"; archive="$2"; pattern="$3"
+  url="https://github.com/ryanoasis/nerd-fonts/releases/latest/download/$archive.tar.xz"
+
+  # fc-list は "RobotoMono Nerd Font,RobotoMono NF" のように別名を
+  # カンマ区切りで出すので、1行1名前にばらしてから完全一致で探す
+  if fc-list : family | tr ',' '\n' | grep -qxF "$family"; then
+    skip "$family : インストール済み"
+    return 0
+  fi
+
+  info "$family : 見つからないのでインストールします"
+  info "       <- $url"
+  if [ "$DRYRUN" -eq 1 ]; then
+    ok "$family"
+    return 0
+  fi
+
+  tmp="$(mktemp -d)"
+  if download "$url" "$tmp/$archive.tar.xz" && tar -xJf "$tmp/$archive.tar.xz" -C "$tmp"; then
+    mkdir -p "$FONT_DIR"
+    count=0
+    while IFS= read -r f; do
+      cp "$f" "$FONT_DIR/"
+      count=$((count + 1))
+    done < <(find "$tmp" -type f -name "$pattern")
+
+    if [ "$count" -gt 0 ]; then
+      FONT_ADDED=1
+      ok "$family（$count ファイル）"
+    else
+      echo "  !!   アーカイブの中に $pattern が見つかりません" >&2
+    fi
+  else
+    # フォントが入らなくても、設定ファイルの配置は続ける
+    echo "  !!   $family のインストールに失敗しました" >&2
+    echo "       手動で入れる場合はここから: $url" >&2
+  fi
+  rm -rf "$tmp"
+}
+
+step "フォント（Nerd Font）"
+if [ "$SKIPFONTS" -eq 1 ]; then
+  skip "--skip-fonts が指定されたので飛ばします"
+elif ! command -v fc-list >/dev/null 2>&1; then
+  skip "fontconfig（fc-list）が無いので飛ばします（画面を持たない Linux では不要）"
+else
+  # 入れたいフォントの一覧。増やすときはここに1行足す。
+  #   使うのは通常版の RobotoMonoNerdFont-*（Mono版 / Propo版は入れない）
+  install_font "RobotoMono Nerd Font" "RobotoMono" "RobotoMonoNerdFont-*.ttf"
+
+  if [ "$FONT_ADDED" -eq 1 ]; then
+    fc-cache -f "$FONT_DIR" >/dev/null
+    ok "フォントの一覧（キャッシュ）を更新しました"
+  fi
+fi
 
 # ==================================================================
 # nvim

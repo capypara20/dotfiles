@@ -3,14 +3,16 @@
 #
 # やること:
 #   (1) XDG_CONFIG_HOME を設定（未設定なら ~\.config）
-#   (2) scoop 本体を入れる（未導入なら）→ バケット追加 → アプリ一括install
-#   (3) リポジトリ内の設定ファイルを、各アプリが見る場所へ「コピー」する
+#   (2) scoop 本体を入れる（未導入なら）→ git → バケット追加 → アプリ一括install
+#   (3) Nerd Font が入っていなければダウンロードして入れる
+#   (4) リポジトリ内の設定ファイルを、各アプリが見る場所へ「コピー」する
 #
 # 使い方:
 #   git clone https://github.com/capypara20/dotfiles.git "$HOME\dotfiles"
 #   cd "$HOME\dotfiles"
 #   .\install.ps1              # 全部やる
-#   .\install.ps1 -SkipScoop   # 設定ファイルのコピーだけ
+#   .\install.ps1 -SkipScoop   # scoop 関連を飛ばす
+#   .\install.ps1 -SkipFonts   # フォントのインストールを飛ばす
 #   .\install.ps1 -DryRun      # 何が起きるか表示するだけ（実際には変更しない）
 #
 # 逆方向（今のPCの設定をリポジトリに取り込む）は sync.ps1 を使う。
@@ -18,6 +20,7 @@
 
 param(
   [switch]$SkipScoop,   # scoop 関連をまるごと飛ばす
+  [switch]$SkipFonts,   # フォントのインストールを飛ばす
   [switch]$DryRun       # 予行演習（表示するだけ）
 )
 
@@ -77,6 +80,22 @@ if ($SkipScoop) {
     Ok "scoop を導入しました"
   }
 
+  # バケットの追加（scoop bucket add）は裏で git clone しているので、git が必須。
+  # git が無いまま進むとバケット追加で詰まるため、先に git だけ入れておく。
+  #   git は scoop に最初から付いてくる main バケットにあるので、git 無しでも入れられる。
+  #   （展開に使う 7zip も scoop が自動で一緒に入れる）
+  #
+  #     scoop 本体 ──▶ git ──▶ バケット追加 ──▶ アプリ一括インストール
+  #                    ↑ ここを先にやる
+  Step "git（バケット追加に必要）"
+  if (Get-Command git -ErrorAction SilentlyContinue) {
+    Skip "インストール済み"
+  } else {
+    Info "見つからないので scoop で先に入れます"
+    if (-not $DryRun) { scoop install git }
+    Ok "git"
+  }
+
   Step "scoop バケット + アプリ"
   $AppsJson = Join-Path $DotDir "scoop\scoop-apps.json"
   if (-not (Test-Path $AppsJson)) {
@@ -101,7 +120,137 @@ if ($SkipScoop) {
 }
 
 # ==================================================================
-# (3) 設定ファイルのコピー
+# (3) フォント（Nerd Font）
+#     Windows Terminal の設定は "RobotoMono Nerd Font" を使うので、
+#     入っていなければ Nerd Fonts 公式の GitHub リリースから取ってきて入れる。
+#
+#     入れる先は「このユーザー専用」のフォント置き場なので、管理者権限は不要。
+#       ファイル : %LOCALAPPDATA%\Microsoft\Windows\Fonts\
+#       登録     : HKCU\Software\Microsoft\Windows NT\CurrentVersion\Fonts
+#     （エクスプローラーで .ttf を右クリック →「インストール」と同じ結果になる）
+# ==================================================================
+
+# 入れたいフォントの一覧。増やすときはここに1行足す。
+#   Family  : フォントの名前（Windows Terminal の "face" に書く名前）
+#   Archive : https://github.com/ryanoasis/nerd-fonts/releases のファイル名（拡張子なし）
+#   Files   : 取り出すファイル（* はワイルドカード）
+#             アーカイブには3種類入っているが、使うのは通常版だけ。
+#               RobotoMonoNerdFont-*      … 通常版（= "RobotoMono Nerd Font"）← これ
+#               RobotoMonoNerdFontMono-*  … アイコンも1文字幅に縮めた版
+#               RobotoMonoNerdFontPropo-* … 文字幅がバラバラな版
+$Fonts = @(
+  @{ Family = "RobotoMono Nerd Font"; Archive = "RobotoMono"; Files = "RobotoMonoNerdFont-*.ttf" }
+)
+
+$UserFontDir = Join-Path $env:LOCALAPPDATA "Microsoft\Windows\Fonts"
+$UserFontReg = "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts"
+
+# そのフォントがもう入っているか、Windows に名前で問い合わせる。
+# （管理者が全ユーザー向けに入れたフォントも、ここで見つかる）
+function Test-FontInstalled($family) {
+  Add-Type -AssemblyName System.Drawing
+  $names = (New-Object System.Drawing.Text.InstalledFontCollection).Families.Name
+  return ($names -contains $family)
+}
+
+# .ttf 1枚を「このユーザー専用」にインストールする
+function Install-UserFont($family, $file) {
+  # (a) ユーザー用フォントフォルダへコピー
+  $dst = Join-Path $UserFontDir $file.Name
+  if (-not (Test-Path $UserFontDir)) { New-Item -ItemType Directory -Force -Path $UserFontDir | Out-Null }
+  if (-not (Test-Path $dst)) { Copy-Item -Path $file.FullName -Destination $dst }
+
+  # (b) レジストリに登録（次回ログオン以降も読み込まれるように）
+  #     例: RobotoMonoNerdFont-BoldItalic.ttf → "RobotoMono Nerd Font BoldItalic (TrueType)"
+  $style = ($file.BaseName -split '-', 2)[1]
+  if (-not (Test-Path $UserFontReg)) { New-Item -Path $UserFontReg -Force | Out-Null }
+  New-ItemProperty -Path $UserFontReg -Name "$family $style (TrueType)" -Value $dst -PropertyType String -Force | Out-Null
+
+  # (c) 今のログオン中にもすぐ使えるよう、Windows に読み込ませる
+  [void][DotfilesFont.Native]::AddFontResourceW($dst)
+}
+
+if ($SkipFonts) {
+  Step "フォント"
+  Skip "-SkipFonts が指定されたので飛ばします"
+} else {
+  Step "フォント（Nerd Font）"
+
+  # tar.exe（Windows 10 1803 以降に標準搭載）が xz を扱えるなら
+  # 小さい .tar.xz（約4MB）を、無理なら .zip（約50MB）を使う。
+  $TarExe = Get-Command tar.exe -ErrorAction SilentlyContinue
+  $UseXz  = $TarExe -and ((& $TarExe.Source --version) -match 'liblzma')
+  $Ext    = if ($UseXz) { ".tar.xz" } else { ".zip" }
+
+  # Windows API を PowerShell から呼ぶための準備（2回目以降は定義済みなので飛ばす）
+  #   AddFontResourceW   : フォントを今のログオン中に読み込む
+  #   SendMessageTimeoutW: 「フォントが増えたよ」と起動中のアプリへ知らせる
+  if (-not ('DotfilesFont.Native' -as [type])) {
+    Add-Type -Namespace DotfilesFont -Name Native -MemberDefinition @'
+[DllImport("gdi32.dll", CharSet = CharSet.Unicode)]
+public static extern int AddFontResourceW(string lpFileName);
+[DllImport("user32.dll", CharSet = CharSet.Unicode)]
+public static extern IntPtr SendMessageTimeoutW(IntPtr hWnd, uint Msg, UIntPtr wParam, IntPtr lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
+'@
+  }
+
+  # ダウンロードを速くする（進捗バーの描画が遅いため）＋ 古い PC 向けに TLS1.2 を有効化
+  $ProgressPreference = "SilentlyContinue"
+  [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+
+  $FontAdded = $false
+  foreach ($font in $Fonts) {
+    if (Test-FontInstalled $font.Family) {
+      Skip "$($font.Family) : インストール済み"
+      continue
+    }
+
+    $url = "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/$($font.Archive)$Ext"
+    Info "$($font.Family) : 見つからないのでインストールします"
+    Info "       <- $url"
+    if ($DryRun) { Ok $font.Family; continue }
+
+    # 作業用の一時フォルダ（終わったら必ず消す）
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) ("dotfiles-font-" + [guid]::NewGuid())
+    try {
+      New-Item -ItemType Directory -Path $tmp | Out-Null
+      $archive = Join-Path $tmp "$($font.Archive)$Ext"
+      $outDir  = Join-Path $tmp "out"
+      New-Item -ItemType Directory -Path $outDir | Out-Null
+
+      Invoke-WebRequest -Uri $url -OutFile $archive -UseBasicParsing
+      if ($UseXz) {
+        & $TarExe.Source -xf $archive -C $outDir
+        if ($LASTEXITCODE -ne 0) { throw "tar での展開に失敗しました" }
+      } else {
+        Expand-Archive -Path $archive -DestinationPath $outDir
+      }
+
+      $files = @(Get-ChildItem -Path $outDir -Recurse -File | Where-Object { $_.Name -like $font.Files })
+      if ($files.Count -eq 0) { throw "アーカイブの中に $($font.Files) が見つかりません" }
+
+      foreach ($f in $files) { Install-UserFont $font.Family $f }
+      $FontAdded = $true
+      Ok "$($font.Family)（$($files.Count) ファイル）"
+    } catch {
+      # フォントが入らなくても、設定ファイルのコピーは続ける
+      Write-Warning "$($font.Family) のインストールに失敗しました: $_"
+      Write-Warning "  手動で入れる場合はここから: $url"
+    } finally {
+      Remove-Item -Path $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+  }
+
+  if ($FontAdded) {
+    # 起動中のアプリへ WM_FONTCHANGE を一斉送信（固まったアプリは1秒で諦める）
+    $result = [UIntPtr]::Zero
+    [void][DotfilesFont.Native]::SendMessageTimeoutW([IntPtr]0xffff, 0x001D, [UIntPtr]::Zero, [IntPtr]::Zero, 0x0002, 1000, [ref]$result)
+    Info "※ Windows Terminal などは再起動すると新しいフォントが使えます"
+  }
+}
+
+# ==================================================================
+# (4) 設定ファイルのコピー
 # ==================================================================
 
 # --- 配置先のパスを決める --------------------------------------------
