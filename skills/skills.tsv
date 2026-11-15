@@ -1,0 +1,3 @@
+type	name	source	targets	url	note
+own	dotfiles-skills		claude,agents		スキル台帳の使い方
+npx	find-skills	vercel-labs/skills	claude,agents	https://skills.sh/vercel-labs/skills/find-skills	スキル検索

@@ -3,7 +3,7 @@
 Windows と Linux の両方で、同じ設定ファイルを使い回すためのリポジトリ。
 
 新しいPCでは **クローン → スクリプトを1回実行** するだけで、
-nvim・PowerShell・VSCode・scoop・フォントの環境が揃う。
+nvim・PowerShell・VSCode・scoop・フォント・エージェントスキルの環境が揃う。
 
 ---
 
@@ -18,6 +18,7 @@ nvim・PowerShell・VSCode・scoop・フォントの環境が揃う。
 | `wterminal/` | Windows Terminal の `settings.json` | `%LOCALAPPDATA%\Packages\Microsoft.WindowsTerminal_*\LocalState\` | —（Windows 専用） |
 | `psmux/` | `psmux.conf` | `%XDG_CONFIG_HOME%\psmux\` | `~/.config/psmux/` |
 | `claude/` | Claude Code の `CLAUDE.md` | `~\.claude\CLAUDE.md` | `~/.claude/CLAUDE.md` |
+| `skills/` | エージェントスキルの台帳と自作スキル（Claude Code・Copilot 用） | `~\.claude\skills`・`~\.agents\skills` | `~/.claude/skills`・`~/.agents/skills` |
 | `bash/` | `.bashrc` | — | `~/.bashrc` |
 
 ---
@@ -44,11 +45,15 @@ dotfiles/
 │   └─ psmux.conf
 ├─ claude/
 │   └─ CLAUDE.md
+├─ skills/               ← エージェントスキル
+│   ├─ skills.tsv        ← 台帳（1 行 = 1 スキル、タブ区切り）
+│   └─ dotfiles-skills/  ← 自作スキル（1 フォルダ = 1 スキル）
 ├─ bash/                 ← Linux 専用
 │   └─ .bashrc
 │
 ├─ install.ps1 / install.sh   ← リポジトリ → PC へ配置する
-└─ sync.ps1    / sync.sh      ← PC → リポジトリ へ取り込む
+├─ sync.ps1    / sync.sh      ← PC → リポジトリ へ取り込む
+└─ skills.ps1  / skills.sh    ← スキルだけを配置する（install の最後からも呼ばれる）
 ```
 
 ---
@@ -102,6 +107,7 @@ cd "$HOME\dotfiles"
    （バケット追加には git が必要なため、この順番にしている）
 3. `RobotoMono Nerd Font` が無ければダウンロードしてインストール（管理者権限は不要）
 4. 設定ファイルを各アプリの場所へコピー
+5. スキル（`skills/skills.tsv` に書いたもの）を配置（`skills.ps1`。詳しくは「スキル」の節）
 
 **Linux:**
 
@@ -115,6 +121,7 @@ bash install.sh
 1. `RobotoMono Nerd Font` が無ければ `~/.local/share/fonts` にインストール
    （fontconfig が無い＝画面を持たない環境では飛ばす）
 2. 設定ファイルを各アプリの場所へコピー
+3. スキルを配置（`skills.sh`。公開スキルを入れるには Node.js を先に入れておく）
 
 ### 設定を変更したあと（リポジトリに取り込む）
 
@@ -149,6 +156,12 @@ git pull
 | `.\sync.ps1 -DryRun` | 同上（取り込みの予行演習） |
 | `bash install.sh --dry-run` | Linux 版の予行演習 |
 | `bash install.sh --skip-fonts` | Linux 版でフォントのインストールを飛ばす |
+| `.\install.ps1 -SkipSkills` | スキルの配置を飛ばす |
+| `.\skills.ps1 -DryRun` | スキルの配置の予行演習 |
+| `.\skills.ps1 -Select` | 入れるスキルを番号で選ぶ |
+| `.\skills.ps1 -Update` | 最後に公開スキルの更新（`npx skills update`）もする |
+| `bash install.sh --skip-skills` | Linux 版でスキルの配置を飛ばす |
+| `bash skills.sh --dry-run` / `--select` / `--update` | Linux 版のスキル配置（意味は上と同じ） |
 
 ---
 
@@ -181,6 +194,77 @@ install.ps1 / install.sh
   名前は [Nerd Fonts のリリース](https://github.com/ryanoasis/nerd-fonts/releases) にあるファイル名を使う
 - ダウンロードに失敗しても警告を出すだけで、設定ファイルの配置は続ける
 - 入れたあとは **Windows Terminal を再起動** すると新しいフォントで表示される
+
+---
+
+## スキル（Claude Code・Copilot 用）
+
+エージェントスキル（`SKILL.md`）を、台帳 `skills/skills.tsv` で管理している。
+台帳に書いたスキルが、Claude Code と Copilot の両方に入る。
+
+```
+ skills/skills.tsv（台帳）
+        │  skills.ps1 / skills.sh が読む
+        ├─ 自作スキル（type = own）… skills/<名前>/ をコピーする
+        └─ 公開スキル（type = npx）… npx skills が GitHub から取ってくる
+        ▼
+ ~/.claude/skills   … Claude Code が読む
+ ~/.agents/skills   … VS Code の Copilot・Copilot アプリ・Codex が読む
+```
+
+### 台帳の書き方
+
+1 行目は見出し。区切りは**タブ**。列は名前で読むので、順番は入れ替えてもよい。
+
+| 列 | 必須 | 中身 |
+|---|---|---|
+| `type` | 必須 | `own`（自作スキル）か `npx`（公開スキル） |
+| `name` | 必須 | スキル名。自作スキルはフォルダ名と同じにする（英数字と `.` `_` `-`） |
+| `source` | `npx` のとき必須 | npx skills に渡すリポジトリ（`owner/repo`） |
+| `targets` | 必須 | 出す先。`claude`・`agents` をカンマでつなぐ |
+| `url` | 任意 | 参考リンク |
+| `note` | 任意 | メモ。選択メニューに表示される |
+
+### スキルを増やす・減らす
+
+```powershell
+# 1. 台帳に 1 行足す（減らすときは行を消す）。自作なら skills/<名前>/SKILL.md も作る
+# 2. 予行演習してから本番
+.\skills.ps1 -DryRun
+.\skills.ps1
+# 3. コミットして push
+git add skills
+git commit -m "スキル xxx を追加"
+git push
+```
+
+他のPCでは `git pull` → `.\skills.ps1`（Linux は `bash skills.sh`）。
+
+### 入れるスキルを選ぶ
+
+ふだんは台帳のスキルを全部入れる。`.\skills.ps1 -Select` で、入れるものを番号で選べる。
+
+```
+入れるスキルを選んでください（番号で切り替え、Enter で決定）
+ [x] 1. dotfiles-skills  スキル台帳の使い方
+ [ ] 2. find-skills      スキル検索
+番号:
+```
+
+- 選んだ結果は PC ごとに `~/.dotfiles-skills/excluded.txt` に残り、次からはそれに従う
+- 残すのは「外したスキル」なので、台帳に新しく足したスキルは何もしなくても入る
+
+### しくみと注意
+
+- 入れたものは `~/.dotfiles-skills/installed.txt` に記録する。消すのはここに載っているものだけで、
+  `synced/`（claude.ai からの同期）や手で入れたスキルには触らない
+- 置き先に同じ名前の管理外フォルダがあると、警告を出して飛ばす
+- 台帳にタブ区切りでない行があると、その行は警告して飛ばす。そういう回は、安全のためスキルを削除しない
+- スキルの中身はリポジトリ側（`skills/<名前>/`）で編集する。置き先を直接編集しても次の実行で上書きされる。
+  sync の対象ではない
+- 公開スキルには Node.js が必要（Windows は scoop の `nodejs-lts`）。npx skills は `--copy` を付け、
+  利用状況の送信を止める `DISABLE_TELEMETRY=1` をつけて呼んでいる
+- Claude Code は今のところ `~/.agents/skills` を読まないので、`~/.claude/skills` にも置いている
 
 ---
 
