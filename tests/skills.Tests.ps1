@@ -120,3 +120,67 @@ Describe 'Read-SkillLedger' {
     $r.HasErrors        | Should -BeFalse
   }
 }
+
+Describe 'Switch-SkillExclusion' {
+  BeforeAll {
+    $s = @(
+      [pscustomobject]@{ Name = 'a' }
+      [pscustomobject]@{ Name = 'b' }
+      [pscustomobject]@{ Name = 'c' }
+    )
+  }
+
+  It '番号で外す' {
+    @(Switch-SkillExclusion -Skills $s -Excluded @() -Answer '2') | Should -Be @('b')
+  }
+
+  It 'もう一度で戻す' {
+    @(Switch-SkillExclusion -Skills $s -Excluded @('b') -Answer '2').Count | Should -Be 0
+  }
+
+  It '複数をまとめて切り替える（空白・カンマ区切り）' {
+    @(Switch-SkillExclusion -Skills $s -Excluded @() -Answer '1, 3') | Should -Be @('a', 'c')
+  }
+
+  It '範囲外の番号と文字は無視する' {
+    @(Switch-SkillExclusion -Skills $s -Excluded @() -Answer '0 9 x 2' -WarningAction SilentlyContinue) | Should -Be @('b')
+  }
+}
+
+Describe '記録ファイル' {
+  It '除外リストを保存して読み直せる' {
+    $dir = Join-Path $TestDrive 'state1'
+    Save-ExcludedSkills -StateDir $dir -Names @('a', 'b')
+    @(Get-ExcludedSkills -StateDir $dir) | Should -Be @('a', 'b')
+  }
+
+  It '除外リストがなければ空' {
+    @(Get-ExcludedSkills -StateDir (Join-Path $TestDrive 'no-such-dir')).Count | Should -Be 0
+  }
+
+  It 'installed を保存して読み直せる' {
+    $dir = Join-Path $TestDrive 'state2'
+    $entries = @(
+      [pscustomobject]@{ Target = 'claude'; Name = 'hello'; Type = 'own' }
+      [pscustomobject]@{ Target = 'agents'; Name = 'find-skills'; Type = 'npx' }
+    )
+    Save-InstalledState -StateDir $dir -Entries $entries
+    $got = @(Get-InstalledState -StateDir $dir)
+    $got.Count     | Should -Be 2
+    $got[1].Target | Should -Be 'agents'
+    $got[1].Name   | Should -Be 'find-skills'
+    $got[1].Type   | Should -Be 'npx'
+  }
+
+  It 'installed がなければ空' {
+    @(Get-InstalledState -StateDir (Join-Path $TestDrive 'no-such-dir')).Count | Should -Be 0
+  }
+
+  It '記録ファイルは BOM なし・LF で書く' {
+    $dir = Join-Path $TestDrive 'state3'
+    Save-ExcludedSkills -StateDir $dir -Names @('a', 'b')
+    $bytes = [IO.File]::ReadAllBytes((Join-Path $dir 'excluded.txt'))
+    $bytes[0]                  | Should -Not -Be 0xEF
+    ($bytes -contains 13)      | Should -BeFalse
+  }
+}

@@ -163,6 +163,104 @@ function Read-SkillLedger {
 }
 
 # ==================================================================
+# マシンごとの記録（~/.dotfiles-skills/）
+#   excluded.txt  : 選択で外したスキル名（1 行に 1 つ）
+#   installed.txt : このスクリプトが入れたもの（置き先<TAB>名前<TAB>種類）
+#
+#   リポジトリには入れない。bash 版と同じファイルを読み書きするので、
+#   BOM なし UTF-8・改行 LF で書く。
+# ==================================================================
+function Read-StateLines {
+  param([Parameter(Mandatory)][string]$Path)
+  if (-not (Test-Path -LiteralPath $Path)) { return @() }
+  return @([IO.File]::ReadAllLines($Path, (New-Object Text.UTF8Encoding($false))) |
+    ForEach-Object { $_.TrimEnd("`r") } |
+    Where-Object { $_.Trim() -ne '' })
+}
+
+function Write-StateLines {
+  param(
+    [Parameter(Mandatory)][string]$Dir,
+    [Parameter(Mandatory)][string]$FileName,
+    [string[]]$Lines = @()
+  )
+  if (-not (Test-Path -LiteralPath $Dir)) { New-Item -ItemType Directory -Force -Path $Dir | Out-Null }
+  $text = ''
+  if ($Lines.Count -gt 0) { $text = ($Lines -join "`n") + "`n" }
+  [IO.File]::WriteAllText((Join-Path $Dir $FileName), $text, (New-Object Text.UTF8Encoding($false)))
+}
+
+function Get-ExcludedSkills {
+  param([Parameter(Mandatory)][string]$StateDir)
+  return Read-StateLines -Path (Join-Path $StateDir 'excluded.txt')
+}
+
+function Save-ExcludedSkills {
+  param([Parameter(Mandatory)][string]$StateDir, [string[]]$Names = @())
+  Write-StateLines -Dir $StateDir -FileName 'excluded.txt' -Lines $Names
+}
+
+function Get-InstalledState {
+  param([Parameter(Mandatory)][string]$StateDir)
+  foreach ($line in (Read-StateLines -Path (Join-Path $StateDir 'installed.txt'))) {
+    $f = $line -split "`t"
+    if ($f.Count -lt 3) { continue }
+    [pscustomobject]@{ Target = $f[0]; Name = $f[1]; Type = $f[2] }
+  }
+}
+
+function Save-InstalledState {
+  param([Parameter(Mandatory)][string]$StateDir, [object[]]$Entries = @())
+  $lines = @($Entries | Where-Object { $_ } | ForEach-Object { "{0}`t{1}`t{2}" -f $_.Target, $_.Name, $_.Type })
+  Write-StateLines -Dir $StateDir -FileName 'installed.txt' -Lines $lines
+}
+
+# ==================================================================
+# 選択メニュー
+#   番号（1 始まり。空白かカンマ区切りで複数可）のスキルの「外す／戻す」を切り替える。
+#   返すのは「外したスキル」の一覧。台帳に後から増えたスキルは外れていない側になる。
+# ==================================================================
+function Switch-SkillExclusion {
+  param(
+    [Parameter(Mandatory)][object[]]$Skills,
+    [string[]]$Excluded = @(),
+    [string]$Answer = ''
+  )
+  $set = New-Object System.Collections.Generic.List[string]
+  foreach ($n in @($Excluded)) { if ($n -and -not $set.Contains($n)) { $set.Add($n) } }
+
+  foreach ($token in @($Answer -split '[\s,]+' | Where-Object { $_ })) {
+    $num = 0
+    if (-not [int]::TryParse($token, [ref]$num) -or $num -lt 1 -or $num -gt $Skills.Count) {
+      Write-Warning "番号 '$token' は使えません（1〜$($Skills.Count) で入力してください）"
+      continue
+    }
+    $name = $Skills[$num - 1].Name
+    if ($set.Contains($name)) { [void]$set.Remove($name) } else { $set.Add($name) }
+  }
+  return $set.ToArray()
+}
+
+# 画面に一覧を出し、空の Enter が押されるまで切り替えをくり返す（テストしない薄い部分）
+function Show-SkillMenu {
+  param([Parameter(Mandatory)][object[]]$Skills, [string[]]$Excluded = @())
+  $current = @($Excluded)
+  while ($true) {
+    Write-Host ""
+    Write-Host "入れるスキルを選んでください（番号で切り替え、Enter で決定）"
+    for ($i = 0; $i -lt $Skills.Count; $i++) {
+      $mark = 'x'
+      if ($current -contains $Skills[$i].Name) { $mark = ' ' }
+      Write-Host (" [{0}] {1}. {2,-16} {3}" -f $mark, ($i + 1), $Skills[$i].Name, $Skills[$i].Note)
+    }
+    $answer = Read-Host "番号"
+    if ([string]::IsNullOrWhiteSpace($answer)) { break }
+    $current = @(Switch-SkillExclusion -Skills $Skills -Excluded $current -Answer $answer)
+  }
+  return $current
+}
+
+# ==================================================================
 # 入口（Task 5 で作る）
 #   . で読み込まれたとき（テストなど）は何もしない
 # ==================================================================
