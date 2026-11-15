@@ -253,3 +253,177 @@ Describe 'Get-SkillPlan' {
     $plan[0].Source | Should -Be 'vercel-labs/skills'
   }
 }
+
+Describe 'Invoke-SkillsMain' {
+  BeforeAll {
+    $LedgerHeader = "type`tname`ttargets`tsource`turl`tnote"
+    function Set-Ledger([string[]]$Rows = @()) {
+      $text = (@($LedgerHeader) + $Rows) -join "`n"
+      [IO.File]::WriteAllText((Join-Path $script:Repo 'skills\skills.tsv'), $text + "`n", (New-Object Text.UTF8Encoding($false)))
+    }
+    function Get-InstalledLines {
+      $f = Join-Path $script:HomeDir '.dotfiles-skills\installed.txt'
+      if (-not (Test-Path $f)) { return @() }
+      return @(Get-Content $f | Where-Object { $_ })
+    }
+  }
+
+  BeforeEach {
+    $id = [guid]::NewGuid().ToString('N')
+    $script:Repo    = Join-Path $TestDrive "repo-$id"
+    $script:HomeDir = Join-Path $TestDrive "home-$id"
+    New-Item -ItemType Directory -Force -Path (Join-Path $script:Repo 'skills\hello') | Out-Null
+    New-Item -ItemType Directory -Force -Path $script:HomeDir | Out-Null
+    Set-Content -LiteralPath (Join-Path $script:Repo 'skills\hello\SKILL.md') -Value "---`nname: hello`n---"
+    $env:DOTFILES_SKILLS_REPO = $script:Repo
+    $env:DOTFILES_SKILLS_HOME = $script:HomeDir
+    $script:Claude = Join-Path $script:HomeDir '.claude\skills'
+    $script:Agents = Join-Path $script:HomeDir '.agents\skills'
+    Mock Invoke-NpxSkills { 0 }
+    Mock Test-NpxAvailable { $true }
+  }
+
+  AfterEach {
+    Remove-Item Env:DOTFILES_SKILLS_REPO, Env:DOTFILES_SKILLS_HOME, Env:DOTFILES_SKILLS_NPX -ErrorAction SilentlyContinue
+  }
+
+  It '自作スキルを両方の置き先にコピーし、記録する' {
+    Set-Ledger "own`thello`tclaude,agents`t`t`t"
+    Invoke-SkillsMain | Out-Null
+    Join-Path $script:Claude 'hello\SKILL.md' | Should -Exist
+    Join-Path $script:Agents 'hello\SKILL.md' | Should -Exist
+    @(Get-InstalledLines).Count | Should -Be 2
+  }
+
+  It '台帳から消すと、次の実行で消える' {
+    Set-Ledger "own`thello`tclaude,agents`t`t`t"
+    Invoke-SkillsMain | Out-Null
+    Set-Ledger
+    Invoke-SkillsMain | Out-Null
+    Join-Path $script:Claude 'hello' | Should -Not -Exist
+    Join-Path $script:Agents 'hello' | Should -Not -Exist
+    @(Get-InstalledLines).Count | Should -Be 0
+  }
+
+  It '管理外の同名フォルダには触らない' {
+    New-Item -ItemType Directory -Force -Path (Join-Path $script:Claude 'hello') | Out-Null
+    Set-Content -LiteralPath (Join-Path $script:Claude 'hello\mine.txt') -Value 'mine'
+    Set-Ledger "own`thello`tclaude`t`t`t"
+    Invoke-SkillsMain -WarningAction SilentlyContinue | Out-Null
+    Get-Content (Join-Path $script:Claude 'hello\mine.txt') | Should -Be 'mine'
+    Join-Path $script:Claude 'hello\SKILL.md' | Should -Not -Exist
+    @(Get-InstalledLines).Count | Should -Be 0
+  }
+
+  It 'DryRun では何も変わらない' {
+    Set-Ledger "own`thello`tclaude,agents`t`t`t"
+    Invoke-SkillsMain -DryRun | Out-Null
+    $script:Claude | Should -Not -Exist
+    $script:Agents | Should -Not -Exist
+    Join-Path $script:HomeDir '.dotfiles-skills' | Should -Not -Exist
+  }
+
+  It '公開スキルは npx を正しいフラグで呼ぶ' {
+    Set-Ledger "npx`tfind-skills`tclaude,agents`tvercel-labs/skills`t`t"
+    Invoke-SkillsMain | Out-Null
+    Should -Invoke Invoke-NpxSkills -Times 1 -Exactly -ParameterFilter {
+      ($Arguments -join ' ') -eq 'add vercel-labs/skills --skill find-skills -g -a claude-code -a github-copilot -y --copy'
+    }
+    @(Get-InstalledLines) | Should -Be @("claude`tfind-skills`tnpx", "agents`tfind-skills`tnpx")
+  }
+
+  It 'npx がなくても自作スキルは入る' {
+    Mock Test-NpxAvailable { $false }
+    Set-Ledger "own`thello`tclaude`t`t`t", "npx`tfind-skills`tclaude`tvercel-labs/skills`t`t"
+    { Invoke-SkillsMain -WarningAction SilentlyContinue | Out-Null } | Should -Not -Throw
+    Join-Path $script:Claude 'hello\SKILL.md' | Should -Exist
+    Should -Invoke Invoke-NpxSkills -Times 0 -Exactly
+  }
+
+  It '記録にあるフォルダが手で消されていても止まらない' {
+    Set-Ledger "own`thello`tclaude`t`t`t"
+    Invoke-SkillsMain | Out-Null
+    Remove-Item -LiteralPath (Join-Path $script:Claude 'hello') -Recurse -Force
+    Set-Ledger
+    { Invoke-SkillsMain | Out-Null } | Should -Not -Throw
+    @(Get-InstalledLines).Count | Should -Be 0
+  }
+
+  It '台帳に不正な行があると何も消さない' {
+    Set-Ledger "own`thello`tclaude`t`t`t"
+    Invoke-SkillsMain | Out-Null
+    Set-Ledger "x own claude"
+    Invoke-SkillsMain -WarningAction SilentlyContinue | Out-Null
+    Join-Path $script:Claude 'hello\SKILL.md' | Should -Exist
+    @(Get-InstalledLines).Count | Should -Be 1
+  }
+
+  It '更新しても置き先に .bak を作らない' {
+    Set-Ledger "own`thello`tclaude`t`t`t"
+    Invoke-SkillsMain | Out-Null
+    Invoke-SkillsMain | Out-Null
+    @(Get-ChildItem -LiteralPath $script:Claude -Force | ForEach-Object Name) | Should -Be @('hello')
+  }
+
+  It '台帳に増えたスキルは、除外リストがあっても入る' {
+    New-Item -ItemType Directory -Force -Path (Join-Path $script:HomeDir '.dotfiles-skills') | Out-Null
+    Set-Content -LiteralPath (Join-Path $script:HomeDir '.dotfiles-skills\excluded.txt') -Value 'other'
+    Set-Ledger "own`thello`tclaude`t`t`t"
+    Invoke-SkillsMain | Out-Null
+    Join-Path $script:Claude 'hello\SKILL.md' | Should -Exist
+  }
+
+  It '公開スキルを台帳から消すと npx remove を呼ぶ' {
+    Set-Ledger "npx`tfind-skills`tclaude,agents`tvercel-labs/skills`t`t"
+    Invoke-SkillsMain | Out-Null
+    Set-Ledger
+    Invoke-SkillsMain | Out-Null
+    Should -Invoke Invoke-NpxSkills -Times 1 -Exactly -ParameterFilter {
+      ($Arguments -join ' ') -eq 'remove find-skills -g -a claude-code -a github-copilot -y'
+    }
+    @(Get-InstalledLines).Count | Should -Be 0
+  }
+
+  It '-Update のとき npx update を呼ぶ' {
+    Set-Ledger
+    Invoke-SkillsMain -Update | Out-Null
+    Should -Invoke Invoke-NpxSkills -Times 1 -Exactly -ParameterFilter { ($Arguments -join ' ') -eq 'update -g -y' }
+  }
+
+  It 'skills/ にフォルダがない自作スキルはエラーにして続ける' {
+    Set-Ledger "own`tghost`tclaude`t`t`t", "own`thello`tclaude`t`t`t"
+    $r = Invoke-SkillsMain -WarningAction SilentlyContinue
+    $r.Counts.Error | Should -Be 1
+    Join-Path $script:Claude 'hello\SKILL.md' | Should -Exist
+    Join-Path $script:Claude 'ghost' | Should -Not -Exist
+  }
+
+  It '台帳がなければ何もせずに終わる' {
+    Remove-Item -LiteralPath (Join-Path $script:Repo 'skills\skills.tsv') -ErrorAction SilentlyContinue
+    { Invoke-SkillsMain | Out-Null } | Should -Not -Throw
+    $script:Claude | Should -Not -Exist
+  }
+}
+
+Describe 'Invoke-NpxSkills' {
+  AfterEach { Remove-Item Env:DOTFILES_SKILLS_NPX -ErrorAction SilentlyContinue }
+
+  It 'テレメトリを止めて npx -y skills を呼び、終わったら元に戻す' {
+    $log  = Join-Path $TestDrive 'npx-log.txt'
+    $fake = Join-Path $TestDrive 'fake-npx.ps1'
+    Set-Content -LiteralPath $fake -Value "`"`$env:DISABLE_TELEMETRY `$(`$args -join ' ')`" | Set-Content -LiteralPath '$log'; exit 0"
+    $env:DOTFILES_SKILLS_NPX = $fake
+    Remove-Item Env:DISABLE_TELEMETRY -ErrorAction SilentlyContinue
+    $code = Invoke-NpxSkills -Arguments @('add', 'x')
+    $code | Should -Be 0
+    Get-Content $log | Should -Be '1 -y skills add x'
+    $env:DISABLE_TELEMETRY | Should -BeNullOrEmpty
+  }
+
+  It 'npx の終了コードを返す' {
+    $fake = Join-Path $TestDrive 'fail-npx.ps1'
+    Set-Content -LiteralPath $fake -Value 'exit 3'
+    $env:DOTFILES_SKILLS_NPX = $fake
+    Invoke-NpxSkills -Arguments @('add', 'x') | Should -Be 3
+  }
+}

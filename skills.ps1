@@ -309,7 +309,224 @@ function Get-SkillPlan {
 }
 
 # ==================================================================
-# 入口（Task 5 で作る）
-#   . で読み込まれたとき（テストなど）は何もしない
+# 見やすいログ用の小さな関数（install.ps1 と同じ見た目）
 # ==================================================================
-# if ($MyInvocation.InvocationName -ne '.') { Invoke-SkillsMain -DryRun:$DryRun -Select:$Select -Update:$Update }
+function Info($msg) { Write-Host "  $msg" }
+function Step($msg) { Write-Host "`n[$msg]" -ForegroundColor Cyan }
+function Ok($msg)   { Write-Host "  OK   $msg" -ForegroundColor Green }
+function Skip($msg) { Write-Host "  --   $msg" -ForegroundColor DarkGray }
+
+# ==================================================================
+# npx skills の呼び出し
+#   - テレメトリ（利用状況の送信）を止めるため DISABLE_TELEMETRY=1 をつける
+#   - テストのときは DOTFILES_SKILLS_NPX で偽物の npx に差し替えられる
+# ==================================================================
+function Get-NpxCommand {
+  if ($env:DOTFILES_SKILLS_NPX) { return $env:DOTFILES_SKILLS_NPX }
+  return 'npx'
+}
+
+function Test-NpxAvailable {
+  return [bool](Get-Command (Get-NpxCommand) -ErrorAction SilentlyContinue)
+}
+
+function Invoke-NpxSkills {
+  param([Parameter(Mandatory)][string[]]$Arguments)
+  $old = $env:DISABLE_TELEMETRY
+  $env:DISABLE_TELEMETRY = '1'
+  try {
+    & (Get-NpxCommand) -y skills @Arguments
+    if ($null -eq $LASTEXITCODE) { return 0 }
+    return [int]$LASTEXITCODE
+  } finally {
+    if ($null -eq $old) { Remove-Item Env:DISABLE_TELEMETRY -ErrorAction SilentlyContinue } else { $env:DISABLE_TELEMETRY = $old }
+  }
+}
+
+# 管理しているスキルのフォルダを消す。
+# リンク（ジャンクション）だった場合は、リンクだけを消してリンク先には触らない。
+function Remove-SkillFolder {
+  param([Parameter(Mandatory)][string]$Path)
+  $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+  if (-not $item) { return }
+  if ($item.LinkType) {
+    [IO.Directory]::Delete($item.FullName, $false)
+  } else {
+    Remove-Item -LiteralPath $item.FullName -Recurse -Force
+  }
+}
+
+# ==================================================================
+# 計画を実行する
+#   自作スキル（own）: リポジトリの skills\<名前>\ を置き先へコピー（退避は作らない）
+#   公開スキル（npx）: npx skills add / remove を呼ぶ（--copy でコピーして置いてもらう）
+#   返すのは、実行後の記録（Installed）と件数（Counts）
+# ==================================================================
+function Invoke-SkillPlan {
+  param(
+    [object[]]$Plan = @(),
+    [Parameter(Mandatory)][string]$RepoDir,
+    [Parameter(Mandatory)]$TargetDirs,
+    [object[]]$Installed = @(),
+    [switch]$DryRun
+  )
+
+  $counts = [ordered]@{ Add = 0; Update = 0; Remove = 0; Skip = 0; Error = 0 }
+  $state  = [ordered]@{}
+  foreach ($e in @($Installed | Where-Object { $_ })) { $state["$($e.Target)`t$($e.Name)"] = $e }
+  $actions = @($Plan | Where-Object { $_ })
+
+  # --- 管理外の同名フォルダ：触らない -------------------------------
+  foreach ($a in @($actions | Where-Object Action -eq 'Conflict')) {
+    Write-Warning "$($a.Name)（$($a.Target)）: 管理外の同名フォルダがあるので飛ばします: $(Join-Path $TargetDirs[$a.Target] $a.Name)"
+    $counts.Skip++
+  }
+
+  # --- 自作スキル ---------------------------------------------------
+  foreach ($a in @($actions | Where-Object { $_.Type -eq 'own' -and $_.Action -ne 'Conflict' })) {
+    $key = "$($a.Target)`t$($a.Name)"
+    $dst = Join-Path $TargetDirs[$a.Target] $a.Name
+    $label = "$($a.Name)（$($a.Target)）"
+
+    if ($a.Action -eq 'Remove') {
+      Info "削除: $label"
+      if (-not $DryRun) { Remove-SkillFolder -Path $dst }
+      $state.Remove($key)
+      $counts.Remove++
+      continue
+    }
+
+    $src = Join-Path (Join-Path $RepoDir 'skills') $a.Name
+    if (-not (Test-Path -LiteralPath $src -PathType Container)) {
+      Write-Warning "${label}: リポジトリに $src がないので飛ばします"
+      $counts.Error++
+      continue
+    }
+
+    Info "$(if ($a.Action -eq 'Add') { '追加' } else { '更新' }): $label -> $dst"
+    if (-not $DryRun) {
+      Remove-SkillFolder -Path $dst
+      $parent = Split-Path -Parent $dst
+      if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+      Copy-Item -LiteralPath $src -Destination $dst -Recurse -Force
+    }
+    $state[$key] = [pscustomobject]@{ Target = $a.Target; Name = $a.Name; Type = 'own' }
+    $counts[$a.Action]++
+  }
+
+  # --- 公開スキル（スキルごとに、出す先をまとめて 1 回呼ぶ） --------
+  $npxActions = @($actions | Where-Object { $_.Type -eq 'npx' -and $_.Action -in @('Add', 'Remove') })
+  $npxReady = $null
+  foreach ($group in @($npxActions | Group-Object Action, Name)) {
+    $first  = $group.Group[0]
+    $agents = @($group.Group | ForEach-Object { $TargetMap[$_.Target].Agent })
+    $label  = "$($first.Name)（$(@($group.Group | ForEach-Object Target) -join ', ')）"
+
+    if ($null -eq $npxReady) { $npxReady = Test-NpxAvailable }
+    if (-not $npxReady) {
+      Write-Warning "${label}: npx が見つからないので公開スキルを飛ばします（Node.js を入れてください）"
+      $counts.Skip += $group.Count
+      continue
+    }
+
+    $agentArgs = @($agents | ForEach-Object { '-a'; $_ })
+    if ($first.Action -eq 'Add') {
+      $npxArgs = @('add', $first.Source, '--skill', $first.Name, '-g') + $agentArgs + @('-y', '--copy')
+      Info "追加（npx）: $label"
+    } else {
+      $npxArgs = @('remove', $first.Name, '-g') + $agentArgs + @('-y')
+      Info "削除（npx）: $label"
+    }
+    if ($DryRun) {
+      Info "       npx skills $($npxArgs -join ' ')"
+    } else {
+      $code = Invoke-NpxSkills -Arguments $npxArgs
+      if ($code -ne 0) {
+        Write-Warning "${label}: npx skills が失敗しました（終了コード $code）"
+        $counts.Error += $group.Count
+        continue
+      }
+    }
+    foreach ($a in $group.Group) {
+      $key = "$($a.Target)`t$($a.Name)"
+      if ($a.Action -eq 'Add') {
+        $state[$key] = [pscustomobject]@{ Target = $a.Target; Name = $a.Name; Type = 'npx' }
+      } else {
+        $state.Remove($key)
+      }
+      $counts[$a.Action]++
+    }
+  }
+
+  return [pscustomobject]@{
+    Installed = @($state.Values)
+    Counts    = $counts
+  }
+}
+
+# ==================================================================
+# 入口
+# ==================================================================
+function Invoke-SkillsMain {
+  param([switch]$DryRun, [switch]$Select, [switch]$Update)
+  $ErrorActionPreference = "Stop"
+
+  $repo    = Get-SkillsRepo
+  $homeDir = Get-SkillsHome
+  $ledgerPath = Join-Path (Join-Path $repo 'skills') 'skills.tsv'
+  $stateDir   = Join-Path $homeDir '.dotfiles-skills'
+
+  Step "スキルを配置"
+  if ($DryRun) { Info "*** DryRun モード: 実際には何も変更しません ***" }
+  if (-not (Test-Path -LiteralPath $ledgerPath)) {
+    Skip "台帳がないので飛ばします（$ledgerPath）"
+    return
+  }
+
+  # (1) 台帳を読む
+  $ledger = Read-SkillLedger -Path $ledgerPath
+  if ($ledger.HasErrors) {
+    Write-Warning "台帳に読めない行があったので、今回は片付け（削除）をしません"
+  }
+
+  # (2) 入れるスキルを決める（-Select ならメニューで選ぶ）
+  $excluded = @(Get-ExcludedSkills -StateDir $stateDir)
+  if ($Select) {
+    if ($ledger.Skills.Count -eq 0) {
+      Skip "台帳にスキルがないので、選ぶものがありません"
+    } else {
+      $excluded = @(Show-SkillMenu -Skills $ledger.Skills -Excluded $excluded)
+      if (-not $DryRun) { Save-ExcludedSkills -StateDir $stateDir -Names $excluded }
+    }
+  }
+
+  # (3) 何をするか計算して、実行する
+  $installed = @(Get-InstalledState -StateDir $stateDir)
+  $dirs = Get-TargetDirs -HomeDir $homeDir
+  $plan = @(Get-SkillPlan -Skills $ledger.Skills -Excluded $excluded -Installed $installed -TargetDirs $dirs -SkipRemovals $ledger.HasErrors)
+  $result = Invoke-SkillPlan -Plan $plan -RepoDir $repo -TargetDirs $dirs -Installed $installed -DryRun:$DryRun
+
+  # (4) 公開スキルの更新（-Update のときだけ）
+  if ($Update) {
+    Step "公開スキルを更新"
+    if (-not (Test-NpxAvailable)) {
+      Write-Warning "npx が見つからないので更新を飛ばします（Node.js を入れてください）"
+    } elseif ($DryRun) {
+      Info "npx skills update -g -y"
+    } else {
+      $code = Invoke-NpxSkills -Arguments @('update', '-g', '-y')
+      if ($code -ne 0) { Write-Warning "npx skills update が失敗しました（終了コード $code）" } else { Ok "公開スキルを更新しました" }
+    }
+  }
+
+  # (5) 記録を保存して、結果を表示する
+  if (-not $DryRun) { Save-InstalledState -StateDir $stateDir -Entries $result.Installed }
+  $c = $result.Counts
+  Ok ("追加 {0} / 更新 {1} / 削除 {2} / スキップ {3} / エラー {4}" -f $c.Add, $c.Update, $c.Remove, $c.Skip, $c.Error)
+  return $result
+}
+
+# . で読み込まれたとき（テストなど）は何もしない
+if ($MyInvocation.InvocationName -ne '.') {
+  [void](Invoke-SkillsMain -DryRun:$DryRun -Select:$Select -Update:$Update)
+}
