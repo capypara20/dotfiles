@@ -176,11 +176,80 @@ Describe '記録ファイル' {
     @(Get-InstalledState -StateDir (Join-Path $TestDrive 'no-such-dir')).Count | Should -Be 0
   }
 
-  It '記録ファイルは BOM なし・LF で書く' {
+  It '記録ファイルは BOM なし・LF で書く（先頭は BOM でなく、CR がない）' {
     $dir = Join-Path $TestDrive 'state3'
     Save-ExcludedSkills -StateDir $dir -Names @('a', 'b')
     $bytes = [IO.File]::ReadAllBytes((Join-Path $dir 'excluded.txt'))
     $bytes[0]                  | Should -Not -Be 0xEF
     ($bytes -contains 13)      | Should -BeFalse
+  }
+}
+
+Describe 'Get-SkillPlan' {
+  BeforeAll {
+    function New-Skill([string]$Name, [string[]]$Targets, [string]$Type = 'own', [string]$Source = '') {
+      [pscustomobject]@{ Type = $Type; Name = $Name; Source = $Source; Targets = $Targets; Url = ''; Note = ''; Line = 2 }
+    }
+    function New-Entry([string]$Target, [string]$Name, [string]$Type = 'own') {
+      [pscustomobject]@{ Target = $Target; Name = $Name; Type = $Type }
+    }
+  }
+  BeforeEach {
+    $dirs = Get-TargetDirs -HomeDir (Join-Path $TestDrive ('home' + [guid]::NewGuid().ToString('N')))
+  }
+
+  It '初めてなら Add' {
+    $plan = @(Get-SkillPlan -Skills @(New-Skill 'hello' @('claude', 'agents')) -TargetDirs $dirs)
+    $plan.Count | Should -Be 2
+    @($plan | ForEach-Object { "$($_.Action):$($_.Target):$($_.Name)" }) | Should -Be @('Add:claude:hello', 'Add:agents:hello')
+  }
+
+  It '記録にあれば Update' {
+    $plan = @(Get-SkillPlan -Skills @(New-Skill 'hello' @('claude', 'agents')) -Installed @(New-Entry 'claude' 'hello') -TargetDirs $dirs)
+    @($plan | ForEach-Object { "$($_.Action):$($_.Target)" }) | Should -Be @('Update:claude', 'Add:agents')
+  }
+
+  It '管理外の同名フォルダがあれば Conflict' {
+    New-Item -ItemType Directory -Force -Path (Join-Path $dirs.claude 'hello') | Out-Null
+    $plan = @(Get-SkillPlan -Skills @(New-Skill 'hello' @('claude')) -TargetDirs $dirs)
+    $plan[0].Action | Should -Be 'Conflict'
+  }
+
+  It '台帳から消えたら Remove' {
+    $plan = @(Get-SkillPlan -Skills @() -Installed @(New-Entry 'claude' 'hello' 'npx') -TargetDirs $dirs)
+    $plan.Count     | Should -Be 1
+    $plan[0].Action | Should -Be 'Remove'
+    $plan[0].Type   | Should -Be 'npx'
+    $plan[0].Name   | Should -Be 'hello'
+  }
+
+  It '除外したら Remove' {
+    $plan = @(Get-SkillPlan -Skills @(New-Skill 'hello' @('claude')) -Excluded @('hello') -Installed @(New-Entry 'claude' 'hello') -TargetDirs $dirs)
+    @($plan | ForEach-Object { "$($_.Action):$($_.Target)" }) | Should -Be @('Remove:claude')
+  }
+
+  It '除外していて記録にもなければ何もしない' {
+    @(Get-SkillPlan -Skills @(New-Skill 'hello' @('claude')) -Excluded @('hello') -TargetDirs $dirs).Count | Should -Be 0
+  }
+
+  It '出す先から agents を外したら agents だけ Remove' {
+    $plan = @(Get-SkillPlan -Skills @(New-Skill 'hello' @('claude')) -Installed @((New-Entry 'claude' 'hello'), (New-Entry 'agents' 'hello')) -TargetDirs $dirs)
+    @($plan | ForEach-Object { "$($_.Action):$($_.Target)" }) | Should -Be @('Update:claude', 'Remove:agents')
+  }
+
+  It '記録にないフォルダ（synced など）は Remove しない' {
+    New-Item -ItemType Directory -Force -Path (Join-Path $dirs.claude 'synced') | Out-Null
+    @(Get-SkillPlan -Skills @() -TargetDirs $dirs).Count | Should -Be 0
+  }
+
+  It 'SkipRemovals のときは Remove を出さない' {
+    $plan = @(Get-SkillPlan -Skills @() -Excluded @() -Installed @(New-Entry 'claude' 'x') -TargetDirs $dirs -SkipRemovals $true)
+    @($plan | Where-Object Action -eq 'Remove').Count | Should -Be 0
+  }
+
+  It '公開スキルの Add は Source を持つ' {
+    $plan = @(Get-SkillPlan -Skills @(New-Skill 'find-skills' @('agents') 'npx' 'vercel-labs/skills') -TargetDirs $dirs)
+    $plan[0].Type   | Should -Be 'npx'
+    $plan[0].Source | Should -Be 'vercel-labs/skills'
   }
 }

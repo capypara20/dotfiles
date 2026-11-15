@@ -261,6 +261,54 @@ function Show-SkillMenu {
 }
 
 # ==================================================================
+# 何をするかの計算（ファイルには触らない）
+#
+#   入れたい組（外していないスキル × その出す先）ごとに:
+#     記録にある                    → Update（入れ直す）
+#     記録になく、同名フォルダがある → Conflict（管理外なので触らない）
+#     どちらでもない                → Add
+#   記録にあるのに入れたい組にない  → Remove
+#     ただし SkipRemovals（台帳に不正な行があった回）は Remove を出さない
+#
+#   消す候補は「記録（installed.txt）にあるもの」だけ。
+#   synced/ や手で入れたスキルは記録にないので、ここには絶対に出てこない。
+# ==================================================================
+function Get-SkillPlan {
+  param(
+    [object[]]$Skills = @(),
+    [string[]]$Excluded = @(),
+    [object[]]$Installed = @(),
+    [Parameter(Mandatory)]$TargetDirs,
+    [bool]$SkipRemovals = $false
+  )
+
+  $installedKeys = @{}
+  foreach ($e in @($Installed | Where-Object { $_ })) { $installedKeys["$($e.Target)`t$($e.Name)"] = $e }
+
+  $wanted = @{}
+  foreach ($s in @($Skills | Where-Object { $_ })) {
+    if (@($Excluded) -contains $s.Name) { continue }
+    foreach ($t in @($s.Targets)) {
+      $key = "$t`t$($s.Name)"
+      $wanted[$key] = $true
+      $action = 'Add'
+      if ($installedKeys.ContainsKey($key)) {
+        $action = 'Update'
+      } elseif (Test-Path -LiteralPath (Join-Path $TargetDirs[$t] $s.Name)) {
+        $action = 'Conflict'
+      }
+      [pscustomobject]@{ Action = $action; Type = $s.Type; Name = $s.Name; Target = $t; Source = $s.Source }
+    }
+  }
+
+  if ($SkipRemovals) { return }
+  foreach ($e in @($Installed | Where-Object { $_ })) {
+    if ($wanted.ContainsKey("$($e.Target)`t$($e.Name)")) { continue }
+    [pscustomobject]@{ Action = 'Remove'; Type = $e.Type; Name = $e.Name; Target = $e.Target; Source = '' }
+  }
+}
+
+# ==================================================================
 # 入口（Task 5 で作る）
 #   . で読み込まれたとき（テストなど）は何もしない
 # ==================================================================
