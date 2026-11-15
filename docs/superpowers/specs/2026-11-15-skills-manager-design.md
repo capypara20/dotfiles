@@ -261,6 +261,20 @@ dotfiles/
 - `--copy` を付けた場合：`~/.agents/skills/<name>` と `~/.claude/skills/<name>` の両方にコピーする。`~/.copilot/skills` は作らない
 - `-a claude-code --copy` だけの場合：`~/.claude/skills/<name>` にだけコピーする（`~/.agents` フォルダはできるが、スキルは置かれない）。`remove` で消える
 - つまり `github-copilot` を指定すると、必ず `~/.agents/skills` を使う。設計の前提（`~/.agents/skills` に置かない）と食い違う
-  - VS Code の Copilot は、公式ドキュメント上 `~/.agents/skills` を読まない（Copilot アプリと Copilot CLI は読む）
+  - VS Code の Copilot は、公式ドキュメントの表には `~/.agents/skills` が載っていない（→ 次の調査で、実際は読むと分かった）
 - テレメトリ：インストール時に利用状況を送る。環境変数 `DISABLE_TELEMETRY` か `DO_NOT_TRACK` で止められる（パッケージのコードで確認）
 - 判断：Roze に相談中
+
+### 調査結果：VS Code は `~/.agents/skills` を読むか（2026-11-16）
+
+- このPCの VS Code 1.146.0 本体（`workbench.desktop.main.js`）にある、スキルを探す場所の既定の一覧
+  - プロジェクト：`.agents/skills`・`.github/skills`・`.claude/skills`
+  - 個人：`~/.agents/skills`・`~/.copilot/skills`・`~/.claude/skills`
+- VS Code に同梱の Copilot（Copilot CLI の SDK）の説明文：「Personal: `~/.copilot/skills/` or `~/.agents/skills/`」
+- VS Code 公式ドキュメント（2026-11-11 更新）：表は「各ハーネスの代表的な場所の一つで、認識するすべてではない」と明記している
+  - Local ハーネスは `~/.claude/skills` と `~/.agents/skills` も読む
+  - 同じ名前のスキルが 2 か所にあると、Skills 画面に両方出る
+- GitHub Docs：Copilot の個人用スキルは `~/.copilot/skills` か `~/.agents/skills`
+- Copilot CLI 1.0.11（2026 年 3 月）で `~/.agents/skills` を追加。リリースノートには「VS Code の Copilot 拡張の既定に合わせる」とある
+- 結論：VS Code の Copilot も `~/.agents/skills` を読む。「VS Code は読まない」は誤りだった（ドキュメントの表が網羅的ではなかった）
+- 注意：Local ハーネス（2027 年 2 月に廃止予定）は `~/.claude/skills` も読む。`~/.claude` と `~/.agents` の両方に置いたスキルは、Local セッションの Skills 画面で二重に見える
