@@ -159,6 +159,11 @@
                      "Info":  ""
                  },
                  {
+                     "Name":  "nodejs-lts",
+                     "Source":  "main",
+                     "Info":  ""
+                 },
+                 {
                      "Name":  "nvm",
                      "Source":  "main",
                      "Info":  ""
