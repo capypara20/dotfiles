@@ -247,11 +247,26 @@ dotfiles/
 
 ## 9. 最初に確かめること（本格運用の前）
 
-- [ ] VS Code の Copilot と Copilot アプリが、`~/.agents/skills` にコピーしたスキルを読めるか
-- [ ] Claude Code が、`~/.claude/skills` にコピーしたスキルを読めるか
+- [ ] VS Code の Copilot と Copilot アプリが、`~/.agents/skills` にコピーしたスキルを読めるか（Roze に画面で確認してもらう）
+- [x] Claude Code が、`~/.claude/skills` にコピーしたスキルを読めるか → 実行直後から、Claude Code のセッションのスキル一覧に `dotfiles-skills` が出た
 - [x] npx skills の `-g` が、どのフォルダにどう置くか（コピーかリンクか、`~/.agents/skills` を使うか）→ 下の「調査結果」
-- [ ] GitHub Copilot アプリで、同じスキルが二重に見えないか
-- [ ] 今の install（scoop・フォント・設定ファイル）の動きが変わっていないか（`-DryRun` の出力を前後で比べる）
+- [ ] GitHub Copilot アプリで、同じスキルが二重に見えないか（Roze に画面で確認してもらう）
+- [x] 今の install（scoop・フォント・設定ファイル）の動きが変わっていないか → `-DryRun` の出力の差分は「スキルを配置」の節だけ
+
+### 実機確認の結果（2026-11-16）
+
+- ノートPC（Windows）で `.\skills.ps1` を本番実行
+  - `dotfiles-skills` が `~/.claude/skills` と `~/.agents/skills` にコピーされた
+  - `find-skills` は、`~/.claude/skills` に管理外の同名フォルダ（以前に手で入れたもの）があるので警告して飛ばし、`~/.agents/skills` には npx skills（`--copy`）で入った
+  - 記録（`~/.dotfiles-skills/installed.txt`）は 3 行
+- 実機確認で見つかった不具合（どちらもテストを足して修正済み）
+  - npx の画面出力が戻り値に混ざり、成功しても失敗と判定していた（skills.ps1）
+  - npx skills の `remove` は、ほかのツールがまだ使っていると判断するとフォルダを残す。記録にあるフォルダは自分で消すようにした（skills.ps1・skills.sh）
+- 除外リストに 2 つとも書いて実行 → 3 か所とも消えた。戻して実行 → 3 か所とも戻った
+  - 管理外の `~/.claude/skills/find-skills`（中身のハッシュ）、`synced/`（273 ファイル）、`drawio` は変わらなかった
+- WSL（Ubuntu）で `bash skills.sh` を本番実行 → `dotfiles-skills` が 2 か所に入った
+  - 番号メニュー（`--select`）で 1 番を外す → 消えた → もう一度 1 番 → 戻った
+  - WSL では Windows 側の npx が見えてしまうが、Linux の node がないので公開スキルは警告して飛ばした（Windows のホームに入れる事故を防ぐ仕組みが働いた）
 
 ### 調査結果：npx skills の置き方（2026-11-16、npx skills 1.8.1、Windows で一時ホームを使って確認）
 
