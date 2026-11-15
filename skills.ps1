@@ -453,6 +453,9 @@ function Invoke-SkillPlan {
       if ($a.Action -eq 'Add') {
         $state[$key] = [pscustomobject]@{ Target = $a.Target; Name = $a.Name; Type = 'npx' }
       } else {
+        # npx はスキル単位で管理しているので、ほかのツールがまだ使っていると判断すると
+        # フォルダを残すことがある。記録にある（＝こちらが --copy で入れた）フォルダは自分で消す
+        if (-not $DryRun) { Remove-SkillFolder -Path (Join-Path $TargetDirs[$a.Target] $a.Name) }
         $state.Remove($key)
       }
       $counts[$a.Action]++

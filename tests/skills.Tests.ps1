@@ -384,6 +384,17 @@ Describe 'Invoke-SkillsMain' {
     @(Get-InstalledLines).Count | Should -Be 0
   }
 
+  It '公開スキルを台帳から消すと、npx が残したフォルダも消す' {
+    Set-Ledger "npx`tfind-skills`tclaude,agents`tvercel-labs/skills`t`t"
+    Invoke-SkillsMain | Out-Null
+    # npx が入れたフォルダの代わり（Mock は何も作らないので手で作る）
+    New-Item -ItemType Directory -Force -Path (Join-Path $script:Claude 'find-skills'), (Join-Path $script:Agents 'find-skills') | Out-Null
+    Set-Ledger
+    Invoke-SkillsMain | Out-Null
+    Join-Path $script:Claude 'find-skills' | Should -Not -Exist
+    Join-Path $script:Agents 'find-skills' | Should -Not -Exist
+  }
+
   It '-Update のとき npx update を呼ぶ' {
     Set-Ledger
     Invoke-SkillsMain -Update | Out-Null

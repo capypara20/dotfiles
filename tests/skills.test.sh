@@ -132,6 +132,17 @@ t_npx_remove_called() {
   assert_eq "$(count_lines "$STATE/installed.txt")" 0
 }
 
+t_npx_remove_also_deletes_leftover_folders() {
+  ledger $'npx\tfind-skills\tclaude,agents\tvercel-labs/skills\t\t'
+  run
+  # npx が入れたフォルダの代わり（偽の npx は何も作らないので手で作る）
+  mkdir -p "$CLAUDE/find-skills" "$AGENTS/find-skills"
+  ledger
+  run
+  assert_not_exists "$CLAUDE/find-skills"
+  assert_not_exists "$AGENTS/find-skills"
+}
+
 t_update_calls_npx_update() {
   ledger
   run --update
@@ -247,6 +258,7 @@ TESTS=(
   t_dry_run_changes_nothing
   t_npx_called_with_flags
   t_npx_remove_called
+  t_npx_remove_also_deletes_leftover_folders
   t_update_calls_npx_update
   t_missing_npx_still_installs_own
   t_npx_without_node_is_skipped

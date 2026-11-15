@@ -460,6 +460,9 @@ run_plan() {
       if [ "$action" = "Add" ]; then
         state_set "${PL_TARGET[$j]}" "$name" npx
       else
+        # npx はスキル単位で管理しているので、ほかのツールがまだ使っていると判断すると
+        # フォルダを残すことがある。記録にある（＝こちらが --copy で入れた）フォルダは自分で消す
+        if [ "$DRYRUN" -eq 0 ]; then remove_skill_dir "$(target_dir "${PL_TARGET[$j]}")/$name"; fi
         state_unset "${PL_TARGET[$j]}" "$name"
       fi
       count_action "$action"
