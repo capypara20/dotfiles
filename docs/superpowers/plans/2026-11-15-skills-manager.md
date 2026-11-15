@@ -12,13 +12,13 @@
 
 ## Global Constraints
 
-- 置き先の対応表（各スクリプトの先頭 1 か所に書く）：`claude` → `~/.claude/skills`（npx の agent 名 `claude-code`）、`copilot` → `~/.copilot/skills`（`github-copilot`）
-- `~/.agents/skills/` には置かない
+- 置き先の対応表（各スクリプトの先頭 1 か所に書く）：`claude` → `~/.claude/skills`（npx の agent 名 `claude-code`）、`agents` → `~/.agents/skills`（`github-copilot`）。`~/.copilot/skills` には置かない（2026-11-16 に変更。設計メモ第 9 章）
+- npx skills の呼び方（Task 1 で確認済み）：追加 `add <owner/repo> --skill <name> -g -a <agent>... -y --copy`、削除 `remove <name> -g -a <agent> -y`、更新 `update -g -y`。どれも環境変数 `DISABLE_TELEMETRY=1` をつけて呼ぶ
 - 台帳：`skills/skills.tsv`。1 行目は見出し。列は `type`・`name`・`source`・`targets`・`url`・`note`。必須は `type`・`name`・`targets`（`npx` のときは `source` も）
 - 台帳は UTF-8（BOM なし）・LF。読むときは BOM と行末の `\r` を取り除く
 - マシンごとの記録：`~/.dotfiles-skills/excluded.txt`（外したスキル名を 1 行 1 つ）、`~/.dotfiles-skills/installed.txt`（`target<TAB>name<TAB>type`、見出しなし）
 - オプション：`-DryRun` / `--dry-run`、`-Select` / `--select`、`-Update` / `--update`、install 側の `-SkipSkills` / `--skip-skills`
-- テスト用の差し替え（環境変数）：`DOTFILES_SKILLS_HOME`（ホームの代わり）、`DOTFILES_SKILLS_REPO`（リポジトリの代わり）、`DOTFILES_SKILLS_NPX`（sh だけ。npx コマンドの代わり）
+- テスト用の差し替え（環境変数）：`DOTFILES_SKILLS_HOME`（ホームの代わり）、`DOTFILES_SKILLS_REPO`（リポジトリの代わり）、`DOTFILES_SKILLS_NPX`（npx コマンドの代わり。ps1 と sh の両方）
 - `skills.ps1` は Windows PowerShell 5.1 でも動く書き方にする（`?:`・`??`・`&&` を使わない）
 - `.ps1` は UTF-8 **BOM 付き**・CRLF で保存する。保存後に `$p='skills.ps1'; [IO.File]::WriteAllText((Resolve-Path $p), (Get-Content $p -Raw), [Text.UTF8Encoding]::new($true))` で BOM を付ける（テストの `.ps1` も同じ）
 - `.sh` は LF（`.gitattributes` で固定済み）
@@ -92,10 +92,10 @@ git commit -m "設計メモに npx skills の置き方の調査結果を追記" 
 
 **Interfaces:**
 - Produces:
-  - `$TargetMap`：`@{ claude = @{ Dir = '.claude/skills'; Agent = 'claude-code' }; copilot = @{ Dir = '.copilot/skills'; Agent = 'github-copilot' } }`
+  - `$TargetMap`：`@{ claude = @{ Dir = '.claude/skills'; Agent = 'claude-code' }; agents = @{ Dir = '.agents/skills'; Agent = 'github-copilot' } }`
   - `Get-SkillsHome` → `[string]`：`$env:DOTFILES_SKILLS_HOME` があればそれ、なければ `$HOME`
   - `Get-SkillsRepo` → `[string]`：`$env:DOTFILES_SKILLS_REPO` があればそれ、なければ `$PSScriptRoot`
-  - `Get-TargetDirs -HomeDir [string]` → `[hashtable]`：`@{ claude = '<home>/.claude/skills'; copilot = '<home>/.copilot/skills' }`
+  - `Get-TargetDirs -HomeDir [string]` → `[hashtable]`：`@{ claude = '<home>/.claude/skills'; agents = '<home>/.agents/skills' }`
   - `Read-SkillLedger -Path [string]` → `[pscustomobject] @{ Skills = [pscustomobject[]]; HasErrors = [bool] }`。各スキルは `Type`・`Name`・`Source`・`Targets`（`[string[]]`）・`Url`・`Note`・`Line`（`[int]`、ファイル上の行番号）
 - `skills.ps1` の先頭に `param([switch]$DryRun, [switch]$Select, [switch]$Update)` を置き、末尾は `if ($MyInvocation.InvocationName -ne '.') { Invoke-SkillsMain -DryRun:$DryRun -Select:$Select -Update:$Update }`（`Invoke-SkillsMain` は Task 5 で作る。それまでは末尾の行をコメントにしておく）
 
@@ -111,10 +111,10 @@ Expected: `Get-Module -ListAvailable Pester` に 5.5 以上が出る（今は 3.
 ```powershell
 Describe 'Read-SkillLedger' {
   It '見出しの名前で列を読む（列の順番に頼らない）' {
-    $p = New-TestLedger "name`ttype`ttargets`tsource`turl`tnote", "rust-tutor`town`tclaude,copilot`t`t`tRust 学習"
+    $p = New-TestLedger "name`ttype`ttargets`tsource`turl`tnote", "rust-tutor`town`tclaude,agents`t`t`tRust 学習"
     $r = Read-SkillLedger -Path $p
     $r.Skills[0].Name    | Should -Be 'rust-tutor'
-    $r.Skills[0].Targets | Should -Be @('claude','copilot')
+    $r.Skills[0].Targets | Should -Be @('claude','agents')
     $r.Skills[0].Note    | Should -Be 'Rust 学習'
     $r.HasErrors         | Should -BeFalse
   }
@@ -124,7 +124,7 @@ Describe 'Read-SkillLedger' {
     $p = New-TestLedger "type`tname", "own`tx"
     { Read-SkillLedger -Path $p } | Should -Throw '*必須の列がありません: targets*'
   }
-  It 'BOM 付き・CRLF でも読める'                                 # -Bom -Crlf で書いて、Targets の最後が 'copilot'（\r なし）
+  It 'BOM 付き・CRLF でも読める'                                 # -Bom -Crlf で書いて、Targets の最後が 'agents'（\r なし）
   It '不正な行は警告して飛ばし、HasErrors を立てる' -TestCases @(
     @{ Row = "cursor-only`town`tcursor`t`t`t";        Why = '知らない出す先' }
     @{ Row = "x`tnpx`tclaude`t`t`t";                  Why = 'npx なのに source がない' }
@@ -239,12 +239,12 @@ git commit -m "スキルの除外リストと導入記録の読み書きを追�
 ```powershell
 Describe 'Get-SkillPlan' {
   BeforeEach { $dirs = Get-TargetDirs -HomeDir (Join-Path $TestDrive 'home') }
-  It '初めてなら Add'                                   # 記録なし・フォルダなし → claude と copilot の Add が 2 件
+  It '初めてなら Add'                                   # 記録なし・フォルダなし → claude と agents の Add が 2 件
   It '記録にあれば Update'
   It '管理外の同名フォルダがあれば Conflict'             # TestDrive に <claude>/x を作っておく → Action が Conflict
   It '台帳から消えたら Remove'
   It '除外したら Remove'
-  It '出す先から copilot を外したら copilot だけ Remove'
+  It '出す先から agents を外したら agents だけ Remove'
   It '記録にないフォルダ（synced など）は Remove しない' # <claude>/synced を作っても計画に出てこない
   It 'SkipRemovals のときは Remove を出さない' {
     $plan = Get-SkillPlan -Skills @() -Excluded @() -Installed @([pscustomobject]@{Target='claude';Name='x';Type='own'}) -TargetDirs $dirs -SkipRemovals $true
@@ -284,7 +284,7 @@ git commit -m "スキルの追加・削除を計算する Get-SkillPlan を追�
 - Consumes: Task 1 のフラグ、Task 2〜4 の関数
 - Produces:
   - `Test-NpxAvailable` → `[bool]`（`Get-Command npx`）
-  - `Invoke-NpxSkills -Arguments [string[]]` → `[int]`（`& npx @Arguments` の終了コード）
+  - `Invoke-NpxSkills -Arguments [string[]]` → `[int]`（`$env:DISABLE_TELEMETRY = '1'` にしてから `& <npx> @Arguments` を呼び、終了コードを返す。`<npx>` は `$env:DOTFILES_SKILLS_NPX` があればそれ、なければ `npx`）
   - `Invoke-SkillPlan -Plan [pscustomobject[]] -RepoDir [string] -TargetDirs [hashtable] -Installed [pscustomobject[]] [-DryRun]` → `[pscustomobject] @{ Installed = [pscustomobject[]]; Counts = @{ Add; Update; Remove; Skip; Error } }`
   - `Invoke-SkillsMain [-DryRun] [-Select] [-Update]`：台帳を読む → `-Select` なら `Show-SkillMenu` と保存 → 計画（`-SkipRemovals` は台帳の `HasErrors`）→ 実行 → `-Update` なら `npx skills update` → 記録を保存（`-DryRun` では保存しない）→ 結果表示
 - 実行のきまり：
@@ -301,15 +301,16 @@ git commit -m "スキルの追加・削除を計算する Get-SkillPlan を追�
 
 ```powershell
 Describe 'Invoke-SkillsMain' {
-  It '自作スキルを両方の置き先にコピーし、記録する'      # <home>/.claude/skills/hello/SKILL.md と .copilot 側がある・installed.txt に 2 行
+  It '自作スキルを両方の置き先にコピーし、記録する'      # <home>/.claude/skills/hello/SKILL.md と .agents 側がある・installed.txt に 2 行
   It '台帳から消すと、次の実行で消える'
   It '管理外の同名フォルダには触らない'                  # 事前に置いたファイルの中身が変わらない
   It 'DryRun では何も変わらない'                         # 置き先も installed.txt も作られない
   It '公開スキルは npx を正しいフラグで呼ぶ' {
     Should -Invoke Invoke-NpxSkills -ParameterFilter {
-      ($Arguments -join ' ') -eq 'add vercel-labs/skills --skill find-skills -g -a claude-code -a github-copilot -y'
-    }   # フラグは Task 1 の結果に合わせる
+      ($Arguments -join ' ') -eq 'add vercel-labs/skills --skill find-skills -g -a claude-code -a github-copilot -y --copy'
+    }
   }
+  It 'Invoke-NpxSkills はテレメトリを止めて npx を呼ぶ'  # DOTFILES_SKILLS_NPX を「$env:DISABLE_TELEMETRY と引数をファイルに書く偽 .ps1」に向け、'1 add x' のように記録される
   It 'npx がなくても自作スキルは入る'                    # Mock Test-NpxAvailable { $false }
   It '記録にあるフォルダが手で消されていても止まらない'   # Review Focus 4：エラーなしで installed.txt から消える
   It '台帳に不正な行があると何も消さない'                # Review Focus 1
@@ -365,11 +366,11 @@ git commit -m "skills.ps1 にコピーと npx 呼び出しの実行部分を追�
 
 `tests/skills.test.sh` に小さな確認関数（`assert_exists`・`assert_not_exists`・`assert_contains`）を書き、失敗が 1 つでもあれば最後に `exit 1`。各テストは **空白を含む一時フォルダ**（`mktemp -d "/tmp/skills test.XXXX"`）に一時リポジトリとホームを作る。偽の npx は、受け取った引数をファイルに 1 行で書くだけのスクリプトにして `DOTFILES_SKILLS_NPX` に渡す。テスト：
 
-- `own_copied_to_both_targets`：`.claude/skills/hello/SKILL.md` と `.copilot/skills/hello/SKILL.md` があり、`installed.txt` に 2 行
+- `own_copied_to_both_targets`：`.claude/skills/hello/SKILL.md` と `.agents/skills/hello/SKILL.md` があり、`installed.txt` に 2 行
 - `removed_from_ledger_is_removed`
 - `unmanaged_folder_untouched`：事前に置いた `.claude/skills/hello/mine.txt` が残る
 - `dry_run_changes_nothing`
-- `npx_called_with_flags`：偽 npx のログが `add vercel-labs/skills --skill find-skills -g -a claude-code -a github-copilot -y`（Task 1 の結果に合わせる）
+- `npx_called_with_flags`：偽 npx のログが `1 add vercel-labs/skills --skill find-skills -g -a claude-code -a github-copilot -y --copy`（先頭の `1` は偽 npx が書いた `$DISABLE_TELEMETRY`）
 - `missing_npx_still_installs_own`：`DOTFILES_SKILLS_NPX=no-such-command`
 - `invalid_row_warns_and_skips_removals`：空白区切りの行で、出力に `2 行目`、既存の管理済みスキルが残る（Review Focus 1）
 - `bom_and_crlf_ledger`：`printf '\xEF\xBB\xBF...\r\n'` で書いた台帳が読める（Review Focus 2）
@@ -461,8 +462,8 @@ git commit -m "install の最後でスキルを配置するようにした" -m "
 
 | type | name | source | targets | url | note |
 |---|---|---|---|---|---|
-| own | dotfiles-skills | | claude,copilot | | スキル台帳の使い方 |
-| npx | find-skills | vercel-labs/skills | claude,copilot | https://skills.sh/vercel-labs/skills/find-skills | スキル検索 |
+| own | dotfiles-skills | | claude,agents | | スキル台帳の使い方 |
+| npx | find-skills | vercel-labs/skills | claude,agents | https://skills.sh/vercel-labs/skills/find-skills | スキル検索 |
 
 - [ ] **Step 2: 最初の自作スキルを作る**
 
@@ -496,7 +497,7 @@ git commit -m "スキル台帳の初期内容と使い方を追加" -m "台帳�
 - [ ] **Step 1: ノートPC（Windows）で本番実行**
 
 Run: `.\skills.ps1`
-Expected: `~/.claude/skills/dotfiles-skills/SKILL.md` と `~/.copilot/skills/dotfiles-skills/SKILL.md` ができる。`find-skills` は claude 側が管理外なので警告、copilot 側は入る（Node.js があれば）
+Expected: `~/.claude/skills/dotfiles-skills/SKILL.md` と `~/.agents/skills/dotfiles-skills/SKILL.md` ができる。`find-skills` は、管理外の同名フォルダがある置き先（このPCでは少なくとも `~/.claude/skills`）では警告して飛ばし、ほかの置き先には入る
 
 - [ ] **Step 2: 各ツールで見えるか確かめる（Roze に確認してもらう）**
 

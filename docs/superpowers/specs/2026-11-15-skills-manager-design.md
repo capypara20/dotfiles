@@ -5,6 +5,7 @@
 - 経緯のメモ：[2026-11-15-skills-setup-notes.md](2026-11-15-skills-setup-notes.md)
 - 第1版からの変更：別リポジトリ案をやめて dotfiles に組み込む。リンク方式をやめてコピー方式にする（dotfiles に合わせる）
 - 第2版からの変更：台帳を見出しつきの TSV にする（Roze の希望）。dotfiles は公開のままでよい（Roze 了承）
+- 2026-11-16 の変更：Copilot 側の置き場所を `~/.copilot/skills` から `~/.agents/skills` に変える。公開スキルは npx skills の置き方（`--copy`）に任せる（第 9 章の調査結果を受けて Roze 了承）
 
 ---
 
@@ -72,23 +73,24 @@ dotfiles はすでに全マシンに clone 済みで、「clone → install 1 �
 - `claude/CLAUDE.md` だけを Claude Code 用に管理している。`.credentials.json` には触らない
 - 公開リポジトリ。`dotfiles/skills/` に置く自作スキルも公開になるが、Roze が了承済み
 
-### 各ツールが読む「個人用」スキルの置き場所（公式ドキュメントで確認済み）
+### 各ツールが読む「個人用」スキルの置き場所（2026-11-16 に各ツールの本体とドキュメントで確認。第 9 章）
 
-| ツール | 置き場所 |
-|---|---|
-| Claude Code（CLI・アプリ・VS Code 拡張） | `~/.claude/skills/` |
-| VS Code の Copilot | `~/.copilot/skills/` |
-| GitHub Copilot アプリ・Copilot CLI | `~/.copilot/skills/`、`~/.agents/skills/` |
+| 置き場所 | Claude Code | VS Code の Copilot | Copilot アプリ・CLI | Codex |
+|---|---|---|---|---|
+| `~/.claude/skills/` | 読む | 廃止予定の Local モードだけ読む | 読まない | 読まない |
+| `~/.copilot/skills/` | 読まない | 読む | 読む | 読まない |
+| `~/.agents/skills/` | 読まない（取り込み機能の読み込み元としてだけ使う） | 読む | 読む | 読む |
 
 - Claude Code と Copilot の両方が読むフォルダは存在しない。なので 2 か所に置く
-- `~/.agents/skills/` には置かない。Copilot アプリが直接読むので、`~/.copilot/skills/` と二重に見えるおそれがある
+- Copilot 側は `~/.agents/skills/` に置く。npx skills もここを使い、Codex も読む。`~/.copilot/skills/` には置かない（Copilot アプリが両方を読むので、二重に見えないようにするため）
 
 ## 4. Roze が決めたこと
 
 - スキルは GitHub で管理する。管理の仕組みは dotfiles に組み込む
 - インストールはスクリプトで行う
 - 公開スキルの取得には npx skills を使う
-- 置き先は `~/.claude/skills/` と `~/.copilot/skills/`
+- 置き先は `~/.claude/skills/` と `~/.agents/skills/`（2026-11-16 に `~/.copilot/skills/` から変更）
+- 公開スキルは npx skills の置き方に任せる（2026-11-16、選択肢 A）
 - 全PC同じセットでいい。実行時に選べるとなおよい
 - 台帳は構造のある形式にする（リンクなども入れたいため）。少なくとも CSV か TSV
 - dotfiles は公開のままでよい。自作スキルが公開されても構わない
@@ -121,7 +123,7 @@ dotfiles/
 | `type` | 必須 | `own`（自作スキル。本体は `skills/<name>/`）か `npx`（公開スキル） |
 | `name` | 必須 | スキル名。自作スキルではフォルダ名と同じにする |
 | `source` | `npx` のとき必須 | npx skills に渡すリポジトリ（`owner/repo`）。`own` では空欄 |
-| `targets` | 必須 | 出す先。`claude`・`copilot` をカンマでつなぐ。スキルごとに決められる |
+| `targets` | 必須 | 出す先。`claude`・`agents` をカンマでつなぐ。スキルごとに決められる |
 | `url` | 任意 | 参考リンク（skills.sh や GitHub のページなど） |
 | `note` | 任意 | メモ。選択メニューに表示する |
 
@@ -129,16 +131,16 @@ dotfiles/
 
 | type | name | source | targets | url | note |
 |---|---|---|---|---|---|
-| own | rust-tutor | | claude,copilot | | Rust 学習 |
-| npx | find-skills | vercel-labs/skills | claude,copilot | https://skills.sh/vercel-labs/skills/find-skills | スキル検索 |
+| own | rust-tutor | | claude,agents | | Rust 学習 |
+| npx | find-skills | vercel-labs/skills | claude,agents | https://skills.sh/vercel-labs/skills/find-skills | スキル検索 |
 | own | server-setup | | claude | | miniPC のサーバ構築 |
 
 - 列は「見出しの名前」で読む。列の順番に頼らない
   - 後から列を足しても（例：`added` に追加日）、今あるスクリプトが壊れないようにするため
 - 空欄は「値なし」として扱う。値の中にタブは入れない
 - 見出しの次から、`#` で始まる行と空行は読み飛ばす
-- `claude` → `~/.claude/skills`（npx の agent 名は `claude-code`）、`copilot` → `~/.copilot/skills`（`github-copilot`）の対応表は、各スクリプトの先頭 1 か所に書く
-  - 将来 Claude Code が `~/.agents/skills` に対応したら、そこを書き換えるだけで済むようにする
+- `claude` → `~/.claude/skills`（npx の agent 名は `claude-code`）、`agents` → `~/.agents/skills`（`github-copilot`。npx skills はこれを共通の置き場所として扱う）の対応表は、各スクリプトの先頭 1 か所に書く
+  - 将来 Claude Code が `~/.agents/skills` に対応したら、`claude` を外すだけで済むようにする
 
 ### 5.3 skills.ps1 / skills.sh の流れ
 
@@ -147,7 +149,7 @@ dotfiles/
 3. 入れるスキルを決める（5.4）
 4. 自作スキル：出す先のフォルダへ **コピー** する（dotfiles と同じコピー方式）
 5. 公開スキル：npx skills を呼ぶ
-   - 例：`npx skills add vercel-labs/skills --skill find-skills -g -a claude-code -a github-copilot -y`
+   - 例：`npx skills add vercel-labs/skills --skill find-skills -g -a claude-code -a github-copilot -y --copy`（環境変数 `DISABLE_TELEMETRY=1` をつけて呼ぶ）
 6. 片付け（5.5）
 7. 結果を表示する：追加・更新・削除・スキップの件数と名前（ログの見た目は今の install に合わせる）
 
@@ -195,7 +197,7 @@ dotfiles/
   - おまけの利点：「VS Code がリンク越しにスキルを読むか分からない」問題と、「リンクを消すとリンク先まで消える」事故の心配がなくなる
   - 代わりに、自作スキルはリポジトリ側（`dotfiles/skills/`）で編集し、編集したら実行し直す
 - **台帳は CSV ではなく TSV にする**（どちらかにする、は Roze の希望）
-  - `targets` の値（`claude,copilot`）やメモにカンマが入るので、CSV だと引用符で囲む必要が出る。bash で引用符つきの CSV を正しく読むのは難しい
+  - `targets` の値（`claude,agents`）やメモにカンマが入るので、CSV だと引用符で囲む必要が出る。bash で引用符つきの CSV を正しく読むのは難しい
   - TSV なら、PowerShell は `Import-Csv -Delimiter "`t"`、bash は `IFS=$'\t' read` で、追加の道具なしに読める
   - JSON や YAML は、bash で読むのに jq や Python が要るので見送る
 - 初版では、スキルを sync（PC → リポジトリ）の対象にしない
@@ -208,6 +210,9 @@ dotfiles/
 - 台帳にあるのに `skills/` にフォルダがない自作スキルは、そのスキルだけエラーにして残りを続ける
 - 台帳の書き方が間違っている行は、行番号つきでエラーにして、その行だけ飛ばす
 - `-Update` の `npx skills update` は、台帳の外で npx skills を使って入れたスキルも更新する。これは許容する
+- npx skills は `--copy` を付けて呼ぶ（dotfiles のコピー方式にそろえる。リンクを使わない）
+- npx skills は環境変数 `DISABLE_TELEMETRY=1` をつけて呼ぶ（利用状況の送信を止める）
+- 自作スキルも Claude Code 側はコピーで置く。`~/.agents/skills` へのリンクにはしない（Claude Code は 1 個ずつのリンクなら読めると報告されているが、コピー方式にそろえる）
 
 ## 7. 作る人に任せること・注意
 
@@ -220,7 +225,7 @@ dotfiles/
 ### 注意
 
 - 今の install の `Deploy` 関数は、既存ファイルを同じ場所に `*.bak-日付` で退避する。スキルにはこれを使わないこと（第 2 章「失敗とみなすこと」）
-- npx skills の `-g` が裏で `~/.agents/skills` を使うかは公式に書かれていない。最初の確認（第 9 章）で調べる
+- npx skills は `github-copilot` を指定すると `~/.agents/skills` に置く（第 9 章）。自作スキルの `agents` も同じ場所に置くので、置き場所はそろう
 - 今の `install.ps1` は Windows PowerShell 5.1 でも動く書き方になっている。`skills.ps1` も 5.1 で動くようにする
 - `skills.tsv` は UTF-8（BOM なし）・改行 LF で保存する
   - BOM があると、bash で読んだときに 1 列目の見出しが `type` と一致しなくなる
@@ -242,7 +247,7 @@ dotfiles/
 
 ## 9. 最初に確かめること（本格運用の前）
 
-- [ ] VS Code の Copilot と Copilot アプリが、`~/.copilot/skills` にコピーしたスキルを読めるか
+- [ ] VS Code の Copilot と Copilot アプリが、`~/.agents/skills` にコピーしたスキルを読めるか
 - [ ] Claude Code が、`~/.claude/skills` にコピーしたスキルを読めるか
 - [x] npx skills の `-g` が、どのフォルダにどう置くか（コピーかリンクか、`~/.agents/skills` を使うか）→ 下の「調査結果」
 - [ ] GitHub Copilot アプリで、同じスキルが二重に見えないか
@@ -263,7 +268,7 @@ dotfiles/
 - つまり `github-copilot` を指定すると、必ず `~/.agents/skills` を使う。設計の前提（`~/.agents/skills` に置かない）と食い違う
   - VS Code の Copilot は、公式ドキュメントの表には `~/.agents/skills` が載っていない（→ 次の調査で、実際は読むと分かった）
 - テレメトリ：インストール時に利用状況を送る。環境変数 `DISABLE_TELEMETRY` か `DO_NOT_TRACK` で止められる（パッケージのコードで確認）
-- 判断：Roze に相談中
+- 判断：選択肢 A（npx skills の置き方に任せる）＋ 自作スキルの Copilot 側も `~/.agents/skills` にそろえる（2026-11-16、Roze 了承）
 
 ### 調査結果：VS Code は `~/.agents/skills` を読むか（2026-11-16）
 
@@ -278,3 +283,11 @@ dotfiles/
 - Copilot CLI 1.0.11（2026 年 3 月）で `~/.agents/skills` を追加。リリースノートには「VS Code の Copilot 拡張の既定に合わせる」とある
 - 結論：VS Code の Copilot も `~/.agents/skills` を読む。「VS Code は読まない」は誤りだった（ドキュメントの表が網羅的ではなかった）
 - 注意：Local ハーネス（2027 年 2 月に廃止予定）は `~/.claude/skills` も読む。`~/.claude` と `~/.agents` の両方に置いたスキルは、Local セッションの Skills 画面で二重に見える
+
+### 調査結果：Claude Code は `~/.agents/skills` を読むか（2026-11-16）
+
+- 公式ドキュメント（Skills のページ）：読み込み先は `~/.claude/skills`・`.claude/skills`・プラグイン・claude.ai からの同期など。`.agents` の記載はない
+- このPCの Claude Code 2.1.325 本体：`.agents/skills` という文字列は、Cursor などの設定を取り込む機能の「読み込み元」としてだけ出てくる（`~/.agents/skills` のスキルを `~/.claude/skills` へコピーで取り込む処理）。ふだんの読み込み先には入っていない
+- GitHub の要望：[#31005](https://github.com/anthropics/claude-code/issues/31005)（AGENTS.md と `.agents/skills` への対応）は未対応のまま Open。[#16345](https://github.com/anthropics/claude-code/issues/16345) は 2026-10-22 に #31005 の重複として閉じられた
+  - 回避策として「`~/.claude/skills/<名前>` から `~/.agents/skills/<名前>` へ 1 個ずつリンクを張ると読める」という報告がある。フォルダごとのリンクは、Claude Code が中にファイルを書き込むので勧められていない
+- 結論：Claude Code は今のところ `~/.claude/skills` を使う必要がある。なので出す先 `claude` は残す
