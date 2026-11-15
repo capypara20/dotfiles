@@ -244,6 +244,23 @@ dotfiles/
 
 - [ ] VS Code の Copilot と Copilot アプリが、`~/.copilot/skills` にコピーしたスキルを読めるか
 - [ ] Claude Code が、`~/.claude/skills` にコピーしたスキルを読めるか
-- [ ] npx skills の `-g` が、どのフォルダにどう置くか（コピーかリンクか、`~/.agents/skills` を使うか）
+- [x] npx skills の `-g` が、どのフォルダにどう置くか（コピーかリンクか、`~/.agents/skills` を使うか）→ 下の「調査結果」
 - [ ] GitHub Copilot アプリで、同じスキルが二重に見えないか
 - [ ] 今の install（scoop・フォント・設定ファイル）の動きが変わっていないか（`-DryRun` の出力を前後で比べる）
+
+### 調査結果：npx skills の置き方（2026-11-16、npx skills 1.8.1、Windows で一時ホームを使って確認）
+
+- フラグ
+  - 追加：`add <owner/repo> -s|--skill <name> -g -a|--agent <agent> -y [--copy]`
+  - 削除：`remove <name> -g -a <agent> -y`
+  - 更新：`update [skills...] -g -y`
+- 既定（リンク方式）で `-a claude-code -a github-copilot` を付けた場合
+  - 実体を `~/.agents/skills/<name>` に置く
+  - Claude Code には `~/.claude/skills/<name>` をジャンクション（Windows）で張る
+  - GitHub Copilot は「universal」扱いで `~/.agents/skills` をそのまま使う。`~/.copilot/skills` は作らない
+- `--copy` を付けた場合：`~/.agents/skills/<name>` と `~/.claude/skills/<name>` の両方にコピーする。`~/.copilot/skills` は作らない
+- `-a claude-code --copy` だけの場合：`~/.claude/skills/<name>` にだけコピーする（`~/.agents` フォルダはできるが、スキルは置かれない）。`remove` で消える
+- つまり `github-copilot` を指定すると、必ず `~/.agents/skills` を使う。設計の前提（`~/.agents/skills` に置かない）と食い違う
+  - VS Code の Copilot は、公式ドキュメント上 `~/.agents/skills` を読まない（Copilot アプリと Copilot CLI は読む）
+- テレメトリ：インストール時に利用状況を送る。環境変数 `DISABLE_TELEMETRY` か `DO_NOT_TRACK` で止められる（パッケージのコードで確認）
+- 判断：Roze に相談中
