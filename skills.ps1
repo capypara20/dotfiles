@@ -335,7 +335,8 @@ function Invoke-NpxSkills {
   $old = $env:DISABLE_TELEMETRY
   $env:DISABLE_TELEMETRY = '1'
   try {
-    & (Get-NpxCommand) -y skills @Arguments
+    # npx の出力は画面に流す（戻り値に混ざると、終了コードが正しく判定できないため）
+    & (Get-NpxCommand) -y skills @Arguments | Out-Host
     if ($null -eq $LASTEXITCODE) { return 0 }
     return [int]$LASTEXITCODE
   } finally {

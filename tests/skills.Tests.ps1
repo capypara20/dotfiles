@@ -420,6 +420,15 @@ Describe 'Invoke-NpxSkills' {
     $env:DISABLE_TELEMETRY | Should -BeNullOrEmpty
   }
 
+  It 'npx が画面に何か出力しても、返すのは終了コードだけ' {
+    $fake = Join-Path $TestDrive 'chatty-npx.ps1'
+    Set-Content -LiteralPath $fake -Value "Write-Output 'Installing...'; Write-Output 'Done!'; exit 0"
+    $env:DOTFILES_SKILLS_NPX = $fake
+    $code = Invoke-NpxSkills -Arguments @('add', 'x')
+    @($code).Count | Should -Be 1
+    $code          | Should -Be 0
+  }
+
   It 'npx の終了コードを返す' {
     $fake = Join-Path $TestDrive 'fail-npx.ps1'
     Set-Content -LiteralPath $fake -Value 'exit 3'
