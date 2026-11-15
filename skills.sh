@@ -350,7 +350,16 @@ run_npx() {
   return "$code"
 }
 
-npx_available() { command -v "$NPX" >/dev/null 2>&1; }
+npx_available() {
+  if [ -n "${DOTFILES_SKILLS_NPX:-}" ]; then
+    # テストなどで npx を差し替えたときは、それがあるかだけを見る
+    command -v "$NPX" >/dev/null 2>&1
+  else
+    # WSL では Windows 側の npx が見えてしまうことがある。
+    # それを使うと Windows のホームに入ってしまうので、Linux の node もあるときだけ使う
+    command -v npx >/dev/null 2>&1 && command -v node >/dev/null 2>&1
+  fi
+}
 
 run_plan() {
   local i j key dst src label

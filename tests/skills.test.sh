@@ -148,6 +148,26 @@ t_missing_npx_still_installs_own() {
   assert_contains "$OUT" "npx が見つからない"
 }
 
+# WSL などで「npx は見えるが node がない」ときは、公開スキルを入れない
+# （Windows 側の npx が見えてしまい、Windows のホームに入れてしまう事故を防ぐ）
+t_npx_without_node_is_skipped() {
+  mkdir -p "$T/bin"
+  printf '#!/bin/sh\necho called >> "$NPX_LOG"\n' > "$T/bin/npx"
+  chmod +x "$T/bin/npx"
+  if PATH="$T/bin:/usr/bin:/bin" command -v node >/dev/null 2>&1; then
+    echo "  (skip: このPCには /usr/bin に node があるので確かめられない)"
+    return 0
+  fi
+  unset DOTFILES_SKILLS_NPX
+  ledger $'own\thello\tclaude\t\t\t' $'npx\tfind-skills\tclaude\tvercel-labs/skills\t\t'
+  OUT="$(PATH="$T/bin:/usr/bin:/bin" bash "$SCRIPT" 2>&1)"
+  CODE=$?
+  assert_eq "$CODE" 0
+  assert_not_exists "$NPX_LOG"
+  assert_contains "$OUT" "npx が見つからない"
+  assert_exists "$CLAUDE/hello/SKILL.md"
+}
+
 t_invalid_row_warns_and_skips_removals() {
   ledger $'own\thello\tclaude\t\t\t'
   run
@@ -229,6 +249,7 @@ TESTS=(
   t_npx_remove_called
   t_update_calls_npx_update
   t_missing_npx_still_installs_own
+  t_npx_without_node_is_skipped
   t_invalid_row_warns_and_skips_removals
   t_bom_and_crlf_ledger
   t_bad_name_rejected
