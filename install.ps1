@@ -6,6 +6,7 @@
 #   (2) scoop 本体を入れる（未導入なら）→ git → バケット追加 → アプリ一括install
 #   (3) Nerd Font が入っていなければダウンロードして入れる
 #   (4) リポジトリ内の設定ファイルを、各アプリが見る場所へ「コピー」する
+#   (5) スキル（skills\skills.tsv に書いたもの）を配置する（中身は skills.ps1）
 #
 # 使い方:
 #   git clone https://github.com/capypara20/dotfiles.git "$HOME\dotfiles"
@@ -13,6 +14,7 @@
 #   .\install.ps1              # 全部やる
 #   .\install.ps1 -SkipScoop   # scoop 関連を飛ばす
 #   .\install.ps1 -SkipFonts   # フォントのインストールを飛ばす
+#   .\install.ps1 -SkipSkills  # スキルの配置を飛ばす
 #   .\install.ps1 -DryRun      # 何が起きるか表示するだけ（実際には変更しない）
 #
 # 逆方向（今のPCの設定をリポジトリに取り込む）は sync.ps1 を使う。
@@ -21,6 +23,7 @@
 param(
   [switch]$SkipScoop,   # scoop 関連をまるごと飛ばす
   [switch]$SkipFonts,   # フォントのインストールを飛ばす
+  [switch]$SkipSkills,  # スキルの配置を飛ばす
   [switch]$DryRun       # 予行演習（表示するだけ）
 )
 
@@ -408,6 +411,18 @@ Deploy "psmux.conf" (Join-Path $DotDir "psmux\psmux.conf") $PsmuxDst $false
 
 Step "Claude Code の指示書を配置"
 Deploy "CLAUDE.md" (Join-Path $DotDir "claude\CLAUDE.md") $ClaudeDst $false
+
+# ==================================================================
+# (5) スキル（Claude Code・Copilot 用）
+#     skills\skills.tsv（台帳）に書いたスキルを配置する。中身は skills.ps1。
+#     スキルだけ入れ直したいときは .\skills.ps1 を直接実行すればよい。
+# ==================================================================
+if ($SkipSkills) {
+  Step "スキルを配置"
+  Skip "-SkipSkills が指定されたので飛ばします"
+} else {
+  & (Join-Path $DotDir "skills.ps1") -DryRun:$DryRun
+}
 
 # ==================================================================
 # 完了メッセージ

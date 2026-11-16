@@ -10,6 +10,7 @@
 #   cd ~/dotfiles
 #   bash install.sh               # 配置する
 #   bash install.sh --skip-fonts  # フォントのインストールを飛ばす
+#   bash install.sh --skip-skills # スキルの配置を飛ばす
 #   bash install.sh --dry-run     # 何が起きるか表示するだけ
 #
 # 逆方向（今のPCの設定をリポジトリに取り込む）は sync.sh を使う。
@@ -26,13 +27,16 @@ CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 # オプションを読む
 #   --dry-run    : 実際の変更はしない（表示だけ）
 #   --skip-fonts : フォントのインストールを飛ばす
+#   --skip-skills: スキルの配置を飛ばす
 # 打ち間違い（--dryrun など）で本当に実行されないよう、知らないものはエラーにする
 DRYRUN=0
 SKIPFONTS=0
+SKIPSKILLS=0
 for arg in "$@"; do
   case "$arg" in
-    --dry-run)    DRYRUN=1 ;;
-    --skip-fonts) SKIPFONTS=1 ;;
+    --dry-run)     DRYRUN=1 ;;
+    --skip-fonts)  SKIPFONTS=1 ;;
+    --skip-skills) SKIPSKILLS=1 ;;
     *) echo "知らないオプションです: $arg" >&2; exit 1 ;;
   esac
 done
@@ -212,6 +216,20 @@ deploy "psmux.conf" "$DOTDIR/psmux/psmux.conf" "$CONFIG_HOME/psmux/psmux.conf"
 # ==================================================================
 step "Claude Code の指示書を配置"
 deploy "CLAUDE.md" "$DOTDIR/claude/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
+
+# ==================================================================
+# スキル（Claude Code・Copilot 用）
+#   skills/skills.tsv（台帳）に書いたスキルを配置する。中身は skills.sh。
+#   スキルだけ入れ直したいときは bash skills.sh を直接実行すればよい。
+# ==================================================================
+if [ "$SKIPSKILLS" -eq 1 ]; then
+  step "スキルを配置"
+  skip "--skip-skills が指定されたので飛ばします"
+elif [ "$DRYRUN" -eq 1 ]; then
+  bash "$DOTDIR/skills.sh" --dry-run
+else
+  bash "$DOTDIR/skills.sh"
+fi
 
 # Windows Terminal は Windows 専用のため、ここでは扱わない。
 
