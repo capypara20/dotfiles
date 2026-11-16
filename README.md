@@ -159,7 +159,7 @@ git pull
 | `.\install.ps1 -SkipSkills` | スキルの配置を飛ばす |
 | `.\skills.ps1 -DryRun` | スキルの配置の予行演習 |
 | `.\skills.ps1 -Select` | 入れるスキルを番号で選ぶ |
-| `.\skills.ps1 -Update` | 最後に公開スキルの更新（`npx skills update`）もする |
+| `.\skills.ps1 -Update` | 最後に公開スキルを入れ直して最新にする（記録した出す先だけ） |
 | `bash install.sh --skip-skills` | Linux 版でスキルの配置を飛ばす |
 | `bash skills.sh --dry-run` / `--select` / `--update` | Linux 版のスキル配置（意味は上と同じ） |
 
@@ -264,6 +264,10 @@ git push
   sync の対象ではない
 - 公開スキルには Node.js が必要（Windows は scoop の `nodejs-lts`）。npx skills は `--copy` を付け、
   利用状況の送信を止める `DISABLE_TELEMETRY=1` をつけて呼んでいる
+- npx skills の `remove` と `update` は使わない。どちらも台帳の出す先を無視して、ほかの場所
+  （`~/.copilot/skills` など）まで消したり上書きしたりすることがあるため。
+  公開スキルの削除は記録にあるフォルダを自分で消し、`-Update` は記録した出す先だけを指定して `add` し直す
+- 記録ファイル（`installed.txt`）に読めない行があると、その行は無視して、その回はスキルを削除しない
 - Claude Code は今のところ `~/.agents/skills` を読まないので、`~/.claude/skills` にも置いている
 
 ---

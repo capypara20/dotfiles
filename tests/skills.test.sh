@@ -123,13 +123,69 @@ t_npx_called_with_flags() {
   assert_eq "$(count_lines "$STATE/installed.txt")" 2
 }
 
-t_npx_remove_called() {
+# 公開スキルを消すときは npx remove を呼ばない（記録にないフォルダまで消すため）
+t_npx_remove_does_not_call_npx() {
   ledger $'npx\tfind-skills\tclaude,agents\tvercel-labs/skills\t\t'
   run
   ledger
   run
-  assert_contains "$(cat "$NPX_LOG")" "1 -y skills remove find-skills -g -a claude-code -a github-copilot -y"
+  case "$(cat "$NPX_LOG")" in *remove*) fail "npx remove が呼ばれました" ;; esac
   assert_eq "$(count_lines "$STATE/installed.txt")" 0
+}
+
+t_npx_removal_works_without_npx() {
+  ledger $'npx\tfind-skills\tclaude,agents\tvercel-labs/skills\t\t'
+  run
+  mkdir -p "$CLAUDE/find-skills" "$AGENTS/find-skills"
+  export DOTFILES_SKILLS_NPX="no-such-command-for-skills-test"
+  ledger
+  run
+  assert_not_exists "$CLAUDE/find-skills"
+  assert_not_exists "$AGENTS/find-skills"
+  assert_eq "$(count_lines "$STATE/installed.txt")" 0
+}
+
+# 記録ファイルのおかしな行（名前が空・..・知らない置き先）があっても、何も消さない
+t_bad_state_lines_delete_nothing() {
+  mkdir -p "$CLAUDE/keep" "$CLAUDE/hello" "$STATE"
+  echo mine > "$H/.claude/CLAUDE.md"
+  printf 'claude\t\town\nclaude\t..\town\ncopilot\tx\town\nclaude\thello\town\n' > "$STATE/installed.txt"
+  ledger
+  run
+  assert_eq "$CODE" 0
+  assert_exists "$CLAUDE/keep"
+  assert_exists "$CLAUDE/hello"
+  assert_exists "$H/.claude/CLAUDE.md"
+}
+
+t_empty_ledger_stops() {
+  ledger $'own\thello\tclaude\t\t\t'
+  run
+  : > "$REPO/skills/skills.tsv"
+  run
+  [ "$CODE" -ne 0 ] || fail "空の台帳なのに終了コードが 0 でした"
+  assert_contains "$OUT" "台帳が空です"
+  assert_exists "$CLAUDE/hello/SKILL.md"
+}
+
+t_copy_failure_continues_and_records() {
+  printf 'not a folder' > "$H/.agents"
+  ledger $'own\thello\tclaude,agents\t\t\t'
+  run
+  assert_eq "$CODE" 0
+  assert_exists "$CLAUDE/hello/SKILL.md"
+  assert_eq "$(cat "$STATE/installed.txt")" "$(printf 'claude\thello\town')"
+  assert_contains "$OUT" "失敗"
+}
+
+t_npx_partial_failure_records_created_folder() {
+  FAKE2="$T/half npx"
+  printf '#!/usr/bin/env bash\nmkdir -p "$DOTFILES_SKILLS_HOME/.agents/skills/find-skills"\nexit 1\n' > "$FAKE2"
+  chmod +x "$FAKE2"
+  export DOTFILES_SKILLS_NPX="$FAKE2"
+  ledger $'npx\tfind-skills\tagents\tvercel-labs/skills\t\t'
+  run
+  assert_eq "$(cat "$STATE/installed.txt")" "$(printf 'agents\tfind-skills\tnpx')"
 }
 
 t_npx_remove_also_deletes_leftover_folders() {
@@ -143,11 +199,14 @@ t_npx_remove_also_deletes_leftover_folders() {
   assert_not_exists "$AGENTS/find-skills"
 }
 
-t_update_calls_npx_update() {
-  ledger
+# --update は、記録にある公開スキルを、記録した出す先だけに入れ直す（npx update は使わない）
+t_update_readds_recorded_targets() {
+  ledger $'npx\tfind-skills\tagents\tvercel-labs/skills\t\t'
+  run
   run --update
   assert_eq "$CODE" 0
-  assert_eq "$(cat "$NPX_LOG")" "1 -y skills update -g -y"
+  assert_eq "$(sed -n 2p "$NPX_LOG")" "1 -y skills add vercel-labs/skills --skill find-skills -g -a github-copilot -y --copy"
+  case "$(cat "$NPX_LOG")" in *" update"*) fail "npx update が呼ばれました" ;; esac
 }
 
 t_missing_npx_still_installs_own() {
@@ -257,9 +316,14 @@ TESTS=(
   t_unmanaged_folder_untouched
   t_dry_run_changes_nothing
   t_npx_called_with_flags
-  t_npx_remove_called
+  t_npx_remove_does_not_call_npx
+  t_npx_removal_works_without_npx
   t_npx_remove_also_deletes_leftover_folders
-  t_update_calls_npx_update
+  t_bad_state_lines_delete_nothing
+  t_empty_ledger_stops
+  t_copy_failure_continues_and_records
+  t_npx_partial_failure_records_created_folder
+  t_update_readds_recorded_targets
   t_missing_npx_still_installs_own
   t_npx_without_node_is_skipped
   t_invalid_row_warns_and_skips_removals

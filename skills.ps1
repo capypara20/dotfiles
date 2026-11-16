@@ -15,7 +15,7 @@
 # 使い方:
 #   .\skills.ps1            # 台帳どおりに配置する
 #   .\skills.ps1 -Select    # 入れるスキルを番号で選ぶ
-#   .\skills.ps1 -Update    # 最後に公開スキルの更新（npx skills update）もする
+#   .\skills.ps1 -Update    # 最後に公開スキルを入れ直して最新にする（記録した出す先だけ）
 #   .\skills.ps1 -DryRun    # 何が起きるか表示するだけ（実際には変更しない）
 #
 # install.ps1 の最後からも呼ばれる（-SkipSkills で飛ばせる）。
@@ -24,7 +24,7 @@
 param(
   [switch]$DryRun,   # 予行演習（表示するだけ）
   [switch]$Select,   # 入れるスキルを選ぶメニューを出す
-  [switch]$Update    # 最後に npx skills update も実行する
+  [switch]$Update    # 最後に公開スキルを入れ直して最新にする
 )
 
 # ==================================================================
@@ -200,11 +200,22 @@ function Save-ExcludedSkills {
   Write-StateLines -Dir $StateDir -FileName 'excluded.txt' -Lines $Names
 }
 
+# 記録（installed.txt）を読む。
+#   この記録は「消してよいもの」の一覧なので、1 行ずつ厳しく確かめる。
+#   置き先が対応表にない・名前が使えない文字を含む（空や .. など）・種類が own/npx でない行は、
+#   警告して無視する（呼び出し側は -WarningVariable で受け取り、その回は片付けをしない）
 function Get-InstalledState {
+  [CmdletBinding()]
   param([Parameter(Mandatory)][string]$StateDir)
+  $n = 0
   foreach ($line in (Read-StateLines -Path (Join-Path $StateDir 'installed.txt'))) {
+    $n++
     $f = $line -split "`t"
-    if ($f.Count -lt 3) { continue }
+    $valid = ($f.Count -ge 3) -and $TargetMap.Contains($f[0]) -and ($f[1] -match $NamePattern) -and ($SkillTypes -contains $f[2])
+    if (-not $valid) {
+      Write-Warning "記録ファイル（installed.txt）の $n 行目が読めないので無視します: '$line'"
+      continue
+    }
     [pscustomobject]@{ Target = $f[0]; Name = $f[1]; Type = $f[2] }
   }
 }
@@ -383,19 +394,32 @@ function Invoke-SkillPlan {
     $counts.Skip++
   }
 
-  # --- 自作スキル ---------------------------------------------------
-  foreach ($a in @($actions | Where-Object { $_.Type -eq 'own' -and $_.Action -ne 'Conflict' })) {
-    $key = "$($a.Target)`t$($a.Name)"
-    $dst = Join-Path $TargetDirs[$a.Target] $a.Name
+  # --- 片付け：自作も公開も、記録にあるフォルダを自分で消す ---------
+  #   npx skills remove は、記録にない場所（~/.copilot/skills など）まで消すことがあるので使わない
+  foreach ($a in @($actions | Where-Object Action -eq 'Remove')) {
+    $key   = "$($a.Target)`t$($a.Name)"
+    $dst   = Join-Path $TargetDirs[$a.Target] $a.Name
     $label = "$($a.Name)（$($a.Target)）"
-
-    if ($a.Action -eq 'Remove') {
-      Info "削除: $label"
-      if (-not $DryRun) { Remove-SkillFolder -Path $dst }
-      $state.Remove($key)
-      $counts.Remove++
-      continue
+    Info "削除: $label"
+    if (-not $DryRun) {
+      try {
+        Remove-SkillFolder -Path $dst
+      } catch {
+        Write-Warning "${label}: 削除に失敗しました（次の実行でもう一度試します）: $($_.Exception.Message)"
+        $counts.Error++
+        continue
+      }
     }
+    $state.Remove($key)
+    $counts.Remove++
+  }
+
+  # --- 自作スキルの追加・更新 ---------------------------------------
+  foreach ($a in @($actions | Where-Object { $_.Type -eq 'own' -and $_.Action -in @('Add', 'Update') })) {
+    $key   = "$($a.Target)`t$($a.Name)"
+    $dst   = Join-Path $TargetDirs[$a.Target] $a.Name
+    $label = "$($a.Name)（$($a.Target)）"
+    $entry = [pscustomobject]@{ Target = $a.Target; Name = $a.Name; Type = 'own' }
 
     $src = Join-Path (Join-Path $RepoDir 'skills') $a.Name
     if (-not (Test-Path -LiteralPath $src -PathType Container)) {
@@ -406,22 +430,30 @@ function Invoke-SkillPlan {
 
     Info "$(if ($a.Action -eq 'Add') { '追加' } else { '更新' }): $label -> $dst"
     if (-not $DryRun) {
-      Remove-SkillFolder -Path $dst
-      $parent = Split-Path -Parent $dst
-      if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
-      Copy-Item -LiteralPath $src -Destination $dst -Recurse -Force
+      try {
+        Remove-SkillFolder -Path $dst
+        $parent = Split-Path -Parent $dst
+        if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Force -Path $parent -ErrorAction Stop | Out-Null }
+        Copy-Item -LiteralPath $src -Destination $dst -Recurse -Force -ErrorAction Stop
+      } catch {
+        Write-Warning "${label}: コピーに失敗しました: $($_.Exception.Message)"
+        $counts.Error++
+        # 計画の時点では無かったフォルダ（Add）が残っていれば、自分が作ったものとして記録する。
+        # 記録しないと、次から「管理外」扱いになって更新も削除もできなくなるため
+        if ($a.Action -eq 'Add' -and (Test-Path -LiteralPath $dst)) { $state[$key] = $entry }
+        continue
+      }
     }
-    $state[$key] = [pscustomobject]@{ Target = $a.Target; Name = $a.Name; Type = 'own' }
+    $state[$key] = $entry
     $counts[$a.Action]++
   }
 
-  # --- 公開スキル（スキルごとに、出す先をまとめて 1 回呼ぶ） --------
-  $npxActions = @($actions | Where-Object { $_.Type -eq 'npx' -and $_.Action -in @('Add', 'Remove') })
+  # --- 公開スキルの追加（スキルごとに、出す先をまとめて 1 回呼ぶ） --------
   $npxReady = $null
-  foreach ($group in @($npxActions | Group-Object Action, Name)) {
-    $first  = $group.Group[0]
-    $agents = @($group.Group | ForEach-Object { $TargetMap[$_.Target].Agent })
-    $label  = "$($first.Name)（$(@($group.Group | ForEach-Object Target) -join ', ')）"
+  foreach ($group in @($actions | Where-Object { $_.Type -eq 'npx' -and $_.Action -eq 'Add' } | Group-Object Name)) {
+    $first   = $group.Group[0]
+    $targets = @($group.Group | ForEach-Object Target)
+    $label   = "$($first.Name)（$($targets -join ', ')）"
 
     if ($null -eq $npxReady) { $npxReady = Test-NpxAvailable }
     if (-not $npxReady) {
@@ -430,35 +462,29 @@ function Invoke-SkillPlan {
       continue
     }
 
-    $agentArgs = @($agents | ForEach-Object { '-a'; $_ })
-    if ($first.Action -eq 'Add') {
-      $npxArgs = @('add', $first.Source, '--skill', $first.Name, '-g') + $agentArgs + @('-y', '--copy')
-      Info "追加（npx）: $label"
-    } else {
-      $npxArgs = @('remove', $first.Name, '-g') + $agentArgs + @('-y')
-      Info "削除（npx）: $label"
-    }
+    $npxArgs = New-NpxAddArguments -Source $first.Source -Name $first.Name -Targets $targets
+    Info "追加（npx）: $label"
+    $ok = $true
     if ($DryRun) {
       Info "       npx skills $($npxArgs -join ' ')"
     } else {
-      $code = Invoke-NpxSkills -Arguments $npxArgs
+      $code = Invoke-NpxSafely -Arguments $npxArgs
       if ($code -ne 0) {
         Write-Warning "${label}: npx skills が失敗しました（終了コード $code）"
-        $counts.Error += $group.Count
-        continue
+        $ok = $false
       }
     }
     foreach ($a in $group.Group) {
-      $key = "$($a.Target)`t$($a.Name)"
-      if ($a.Action -eq 'Add') {
-        $state[$key] = [pscustomobject]@{ Target = $a.Target; Name = $a.Name; Type = 'npx' }
+      $key   = "$($a.Target)`t$($a.Name)"
+      $entry = [pscustomobject]@{ Target = $a.Target; Name = $a.Name; Type = 'npx' }
+      if ($ok) {
+        $state[$key] = $entry
+        $counts.Add++
       } else {
-        # npx はスキル単位で管理しているので、ほかのツールがまだ使っていると判断すると
-        # フォルダを残すことがある。記録にある（＝こちらが --copy で入れた）フォルダは自分で消す
-        if (-not $DryRun) { Remove-SkillFolder -Path (Join-Path $TargetDirs[$a.Target] $a.Name) }
-        $state.Remove($key)
+        $counts.Error++
+        # 途中までコピーされたフォルダがあれば、自分が作ったものとして記録する
+        if (Test-Path -LiteralPath (Join-Path $TargetDirs[$a.Target] $a.Name)) { $state[$key] = $entry }
       }
-      $counts[$a.Action]++
     }
   }
 
@@ -468,6 +494,56 @@ function Invoke-SkillPlan {
   }
 }
 
+# npx skills add の引数（出す先ごとに -a <agent> を並べる。--copy でコピーして置いてもらう）
+function New-NpxAddArguments {
+  param([string]$Source, [string]$Name, [string[]]$Targets)
+  $agentArgs = @($Targets | ForEach-Object { '-a'; $TargetMap[$_].Agent })
+  return @('add', $Source, '--skill', $Name, '-g') + $agentArgs + @('-y', '--copy')
+}
+
+# npx を呼ぶ。npx 自体が起動できないなどの例外も「失敗（終了コード 1）」として返す
+function Invoke-NpxSafely {
+  param([Parameter(Mandatory)][string[]]$Arguments)
+  try {
+    return Invoke-NpxSkills -Arguments $Arguments
+  } catch {
+    Write-Warning "npx skills を実行できませんでした: $($_.Exception.Message)"
+    return 1
+  }
+}
+
+# 公開スキルの更新（-Update）
+#   npx skills update は、台帳の出す先を無視して見つけたツール全部に入れ直すので使わない。
+#   記録にある公開スキルを、記録した出す先だけを指定して add し直す（add は上書きで更新される）
+function Update-NpxSkills {
+  param([object[]]$Installed = @(), [object[]]$Skills = @(), [switch]$DryRun)
+  Step "公開スキルを更新"
+  $groups = @($Installed | Where-Object { $_ -and $_.Type -eq 'npx' } | Group-Object Name)
+  if ($groups.Count -eq 0) {
+    Skip "更新する公開スキルはありません"
+    return
+  }
+  if (-not (Test-NpxAvailable)) {
+    Write-Warning "npx が見つからないので更新を飛ばします（Node.js を入れてください）"
+    return
+  }
+  foreach ($g in $groups) {
+    $skill = @($Skills | Where-Object { $_.Name -eq $g.Name -and $_.Type -eq 'npx' }) | Select-Object -First 1
+    if (-not $skill) {
+      Skip "$($g.Name): 台帳に見つからないので更新を飛ばします"
+      continue
+    }
+    $targets = @($g.Group | ForEach-Object Target)
+    $npxArgs = New-NpxAddArguments -Source $skill.Source -Name $g.Name -Targets $targets
+    Info "更新（npx）: $($g.Name)（$($targets -join ', ')）"
+    if ($DryRun) {
+      Info "       npx skills $($npxArgs -join ' ')"
+      continue
+    }
+    $code = Invoke-NpxSafely -Arguments $npxArgs
+    if ($code -ne 0) { Write-Warning "$($g.Name): 更新に失敗しました（終了コード $code）" } else { Ok "$($g.Name) を更新しました" }
+  }
+}
 # ==================================================================
 # 入口
 # ==================================================================
@@ -487,7 +563,7 @@ function Invoke-SkillsMain {
     return
   }
 
-  # (1) 台帳を読む
+  # (1) 台帳を読む（空の台帳や、必須の列がない台帳はここで止まる）
   $ledger = Read-SkillLedger -Path $ledgerPath
   if ($ledger.HasErrors) {
     Write-Warning "台帳に読めない行があったので、今回は片付け（削除）をしません"
@@ -504,32 +580,28 @@ function Invoke-SkillsMain {
     }
   }
 
-  # (3) 何をするか計算して、実行する
-  $installed = @(Get-InstalledState -StateDir $stateDir)
-  $dirs = Get-TargetDirs -HomeDir $homeDir
-  $plan = @(Get-SkillPlan -Skills $ledger.Skills -Excluded $excluded -Installed $installed -TargetDirs $dirs -SkipRemovals $ledger.HasErrors)
-  $result = Invoke-SkillPlan -Plan $plan -RepoDir $repo -TargetDirs $dirs -Installed $installed -DryRun:$DryRun
-
-  # (4) 公開スキルの更新（-Update のときだけ）
-  if ($Update) {
-    Step "公開スキルを更新"
-    if (-not (Test-NpxAvailable)) {
-      Write-Warning "npx が見つからないので更新を飛ばします（Node.js を入れてください）"
-    } elseif ($DryRun) {
-      Info "npx skills update -g -y"
-    } else {
-      $code = Invoke-NpxSkills -Arguments @('update', '-g', '-y')
-      if ($code -ne 0) { Write-Warning "npx skills update が失敗しました（終了コード $code）" } else { Ok "公開スキルを更新しました" }
-    }
+  # (3) 記録を読む（読めない行があれば、その回は片付けをしない）
+  $stateWarnings = $null
+  $installed = @(Get-InstalledState -StateDir $stateDir -WarningVariable stateWarnings)
+  $stateHasErrors = @($stateWarnings).Count -gt 0
+  if ($stateHasErrors) {
+    Write-Warning "記録ファイルに読めない行があったので、今回は片付け（削除）をしません"
   }
 
-  # (5) 記録を保存して、結果を表示する
+  # (4) 何をするか計算して、実行する
+  $dirs = Get-TargetDirs -HomeDir $homeDir
+  $plan = @(Get-SkillPlan -Skills $ledger.Skills -Excluded $excluded -Installed $installed -TargetDirs $dirs -SkipRemovals ($ledger.HasErrors -or $stateHasErrors))
+  $result = Invoke-SkillPlan -Plan $plan -RepoDir $repo -TargetDirs $dirs -Installed $installed -DryRun:$DryRun
+
+  # (5) 公開スキルの更新（-Update のときだけ）
+  if ($Update) { Update-NpxSkills -Installed $result.Installed -Skills $ledger.Skills -DryRun:$DryRun }
+
+  # (6) 記録を保存して、結果を表示する
   if (-not $DryRun) { Save-InstalledState -StateDir $stateDir -Entries $result.Installed }
   $c = $result.Counts
   Ok ("追加 {0} / 更新 {1} / 削除 {2} / スキップ {3} / エラー {4}" -f $c.Add, $c.Update, $c.Remove, $c.Skip, $c.Error)
   return $result
 }
-
 # . で読み込まれたとき（テストなど）は何もしない
 if ($MyInvocation.InvocationName -ne '.') {
   [void](Invoke-SkillsMain -DryRun:$DryRun -Select:$Select -Update:$Update)

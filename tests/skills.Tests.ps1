@@ -373,15 +373,64 @@ Describe 'Invoke-SkillsMain' {
     Join-Path $script:Claude 'hello\SKILL.md' | Should -Exist
   }
 
-  It '公開スキルを台帳から消すと npx remove を呼ぶ' {
+  It '公開スキルを台帳から消すときは npx remove を呼ばない（記録にないフォルダまで消すため）' {
     Set-Ledger "npx`tfind-skills`tclaude,agents`tvercel-labs/skills`t`t"
     Invoke-SkillsMain | Out-Null
     Set-Ledger
     Invoke-SkillsMain | Out-Null
-    Should -Invoke Invoke-NpxSkills -Times 1 -Exactly -ParameterFilter {
-      ($Arguments -join ' ') -eq 'remove find-skills -g -a claude-code -a github-copilot -y'
-    }
+    Should -Invoke Invoke-NpxSkills -Times 0 -Exactly -ParameterFilter { $Arguments[0] -eq 'remove' }
     @(Get-InstalledLines).Count | Should -Be 0
+  }
+
+  It '公開スキルの片付けは npx がなくてもできる' {
+    Set-Ledger "npx`tfind-skills`tclaude,agents`tvercel-labs/skills`t`t"
+    Invoke-SkillsMain | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $script:Claude 'find-skills'), (Join-Path $script:Agents 'find-skills') | Out-Null
+    Mock Test-NpxAvailable { $false }
+    Set-Ledger
+    Invoke-SkillsMain -WarningAction SilentlyContinue | Out-Null
+    Join-Path $script:Claude 'find-skills' | Should -Not -Exist
+    Join-Path $script:Agents 'find-skills' | Should -Not -Exist
+    @(Get-InstalledLines).Count | Should -Be 0
+  }
+
+  It '記録ファイルのおかしな行では何も消さない（名前が空・..・知らない置き先）' {
+    New-Item -ItemType Directory -Force -Path (Join-Path $script:Claude 'keep'), (Join-Path $script:Claude 'hello'), (Join-Path $script:HomeDir '.dotfiles-skills') | Out-Null
+    Set-Content -LiteralPath (Join-Path $script:HomeDir '.claude\CLAUDE.md') -Value 'mine'
+    [IO.File]::WriteAllText((Join-Path $script:HomeDir '.dotfiles-skills\installed.txt'), "claude`t`town`nclaude`t..`town`ncopilot`tx`town`nclaude`thello`town`n", (New-Object Text.UTF8Encoding($false)))
+    Set-Ledger
+    { Invoke-SkillsMain -WarningAction SilentlyContinue | Out-Null } | Should -Not -Throw
+    Join-Path $script:Claude 'keep'               | Should -Exist
+    Join-Path $script:Claude 'hello'              | Should -Exist
+    Join-Path $script:HomeDir '.claude\CLAUDE.md' | Should -Exist
+  }
+
+  It '空の台帳なら止まって、何も消さない' {
+    Set-Ledger "own`thello`tclaude`t`t`t"
+    Invoke-SkillsMain | Out-Null
+    [IO.File]::WriteAllText((Join-Path $script:Repo 'skills\skills.tsv'), '')
+    { Invoke-SkillsMain | Out-Null } | Should -Throw '*台帳が空です*'
+    Join-Path $script:Claude 'hello\SKILL.md' | Should -Exist
+  }
+
+  It '途中でコピーに失敗しても止まらず、できた分は記録する' {
+    Set-Content -LiteralPath (Join-Path $script:HomeDir '.agents') -Value 'not a folder'
+    Set-Ledger "own`thello`tclaude,agents`t`t`t"
+    $r = $null
+    { $script:r = Invoke-SkillsMain -WarningAction SilentlyContinue } | Should -Not -Throw
+    $script:r.Counts.Error | Should -Be 1
+    Join-Path $script:Claude 'hello\SKILL.md' | Should -Exist
+    @(Get-InstalledLines) | Should -Be @("claude`thello`town")
+  }
+
+  It '公開スキルの追加が失敗しても、できたフォルダは記録する' {
+    Mock Invoke-NpxSkills {
+      New-Item -ItemType Directory -Force -Path (Join-Path $env:DOTFILES_SKILLS_HOME '.agents\skills\find-skills') | Out-Null
+      1
+    }
+    Set-Ledger "npx`tfind-skills`tagents`tvercel-labs/skills`t`t"
+    Invoke-SkillsMain -WarningAction SilentlyContinue | Out-Null
+    @(Get-InstalledLines) | Should -Be @("agents`tfind-skills`tnpx")
   }
 
   It '公開スキルを台帳から消すと、npx が残したフォルダも消す' {
@@ -395,10 +444,14 @@ Describe 'Invoke-SkillsMain' {
     Join-Path $script:Agents 'find-skills' | Should -Not -Exist
   }
 
-  It '-Update のとき npx update を呼ぶ' {
-    Set-Ledger
+  It '-Update は、記録にある公開スキルを、記録した出す先だけに入れ直す（npx update は使わない）' {
+    Set-Ledger "npx`tfind-skills`tagents`tvercel-labs/skills`t`t"
+    Invoke-SkillsMain | Out-Null
     Invoke-SkillsMain -Update | Out-Null
-    Should -Invoke Invoke-NpxSkills -Times 1 -Exactly -ParameterFilter { ($Arguments -join ' ') -eq 'update -g -y' }
+    Should -Invoke Invoke-NpxSkills -Times 2 -Exactly -ParameterFilter {
+      ($Arguments -join ' ') -eq 'add vercel-labs/skills --skill find-skills -g -a github-copilot -y --copy'
+    }
+    Should -Invoke Invoke-NpxSkills -Times 0 -Exactly -ParameterFilter { $Arguments[0] -eq 'update' }
   }
 
   It 'skills/ にフォルダがない自作スキルはエラーにして続ける' {

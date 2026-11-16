@@ -16,7 +16,7 @@
 # 使い方:
 #   bash skills.sh             # 台帳どおりに配置する
 #   bash skills.sh --select    # 入れるスキルを番号で選ぶ
-#   bash skills.sh --update    # 最後に公開スキルの更新（npx skills update）もする
+#   bash skills.sh --update    # 最後に公開スキルを入れ直して最新にする（記録した出す先だけ）
 #   bash skills.sh --dry-run   # 何が起きるか表示するだけ
 #
 # install.sh の最後からも呼ばれる（--skip-skills で飛ばせる）。
@@ -178,6 +178,12 @@ read_ledger() {
     SK_TARGETS+=("$(IFS=','; echo "${targets[*]}")")
     SK_NOTE+=("$note")
   done < "$LEDGER"
+
+  # 空の台帳（0 バイト）は見出しも読めていない。「スキルが 0 個」と誤解して全部消さないよう止める
+  if [ "$lineno" -eq 0 ]; then
+    echo "台帳が空です: $LEDGER" >&2
+    return 1
+  fi
 }
 
 # ==================================================================
@@ -188,21 +194,33 @@ read_ledger() {
 # ==================================================================
 EXCLUDED=()
 IN_TARGET=(); IN_NAME=(); IN_TYPE=()
+STATE_ERRORS=0
 
 load_state() {
-  local line f
+  local line n=0
   if [ -f "$STATE_DIR/excluded.txt" ]; then
     while IFS= read -r line || [ -n "$line" ]; do
       line="$(trim "${line%$'\r'}")"
       if [ -n "$line" ]; then EXCLUDED+=("$line"); fi
     done < "$STATE_DIR/excluded.txt"
   fi
+  # installed.txt は「消してよいもの」の一覧なので、1 行ずつ厳しく確かめる。
+  # 置き先が対応表にない・名前が使えない文字を含む（空や .. など）・種類が own/npx でない行は
+  # 警告して無視し、その回は片付けをしない
   if [ -f "$STATE_DIR/installed.txt" ]; then
     while IFS= read -r line || [ -n "$line" ]; do
       line="${line%$'\r'}"
       if [ -z "$line" ]; then continue; fi
+      n=$((n + 1))
       split_tabs "$line"
-      if [ "${#FIELDS[@]}" -lt 3 ]; then continue; fi
+      if [ "${#FIELDS[@]}" -lt 3 ] \
+        || [ -z "${TARGET_DIR[${FIELDS[0]}]+x}" ] \
+        || ! [[ "${FIELDS[1]}" =~ $NAME_RE ]] \
+        || { [ "${FIELDS[2]}" != "own" ] && [ "${FIELDS[2]}" != "npx" ]; }; then
+        warn "記録ファイル（installed.txt）の $n 行目が読めないので無視します: '$line'"
+        STATE_ERRORS=1
+        continue
+      fi
       IN_TARGET+=("${FIELDS[0]}")
       IN_NAME+=("${FIELDS[1]}")
       IN_TYPE+=("${FIELDS[2]}")
@@ -303,7 +321,7 @@ make_plan() {
     done
   done
 
-  if [ "$LEDGER_ERRORS" -eq 1 ]; then return 0; fi
+  if [ "$LEDGER_ERRORS" -eq 1 ] || [ "$STATE_ERRORS" -eq 1 ]; then return 0; fi
   for j in "${!IN_NAME[@]}"; do
     key="${IN_TARGET[$j]}"$'\t'"${IN_NAME[$j]}"
     if [ -z "${wanted[$key]+x}" ]; then
@@ -324,7 +342,11 @@ state_set() {
   if [ -z "${NEW_STATE[$key]+x}" ]; then NEW_ORDER+=("$key"); fi
   NEW_STATE[$key]="$3"
 }
-state_unset() { unset 'NEW_STATE['"$1"$'\t'"$2"']'; }
+# キーは変数に入れてから消す（unset にキーの中身をもう一度解釈させないため）
+state_unset() {
+  local k="$1"$'\t'"$2"
+  unset 'NEW_STATE[$k]'
+}
 
 count_action() {
   case "$1" in
@@ -373,19 +395,28 @@ run_plan() {
     fi
   done
 
-  # --- 自作スキル ---
+  # --- 片付け：自作も公開も、記録にあるフォルダを自分で消す ---
+  #   npx skills remove は、記録にない場所（~/.copilot/skills など）まで消すことがあるので使わない
   for i in "${!PL_ACTION[@]}"; do
-    if [ "${PL_TYPE[$i]}" != "own" ] || [ "${PL_ACTION[$i]}" = "Conflict" ]; then continue; fi
+    if [ "${PL_ACTION[$i]}" != "Remove" ]; then continue; fi
     dst="$(target_dir "${PL_TARGET[$i]}")/${PL_NAME[$i]}"
     label="${PL_NAME[$i]}（${PL_TARGET[$i]}）"
-
-    if [ "${PL_ACTION[$i]}" = "Remove" ]; then
-      info "削除: $label"
-      if [ "$DRYRUN" -eq 0 ]; then remove_skill_dir "$dst"; fi
-      state_unset "${PL_TARGET[$i]}" "${PL_NAME[$i]}"
-      count_action Remove
+    info "削除: $label"
+    if [ "$DRYRUN" -eq 0 ] && ! remove_skill_dir "$dst"; then
+      warn "$label: 削除に失敗しました（次の実行でもう一度試します）"
+      C_ERROR=$((C_ERROR + 1))
       continue
     fi
+    state_unset "${PL_TARGET[$i]}" "${PL_NAME[$i]}"
+    count_action Remove
+  done
+
+  # --- 自作スキルの追加・更新 ---
+  for i in "${!PL_ACTION[@]}"; do
+    if [ "${PL_TYPE[$i]}" != "own" ]; then continue; fi
+    if [ "${PL_ACTION[$i]}" != "Add" ] && [ "${PL_ACTION[$i]}" != "Update" ]; then continue; fi
+    dst="$(target_dir "${PL_TARGET[$i]}")/${PL_NAME[$i]}"
+    label="${PL_NAME[$i]}（${PL_TARGET[$i]}）"
 
     src="$REPO/skills/${PL_NAME[$i]}"
     if [ ! -d "$src" ]; then
@@ -395,36 +426,36 @@ run_plan() {
     fi
     if [ "${PL_ACTION[$i]}" = "Add" ]; then info "追加: $label -> $dst"; else info "更新: $label -> $dst"; fi
     if [ "$DRYRUN" -eq 0 ]; then
-      remove_skill_dir "$dst"
-      mkdir -p "$(dirname "$dst")"
-      cp -R "$src" "$dst"
+      if ! { remove_skill_dir "$dst" && mkdir -p "$(dirname "$dst")" && cp -R "$src" "$dst"; }; then
+        warn "$label: コピーに失敗しました"
+        C_ERROR=$((C_ERROR + 1))
+        # 計画の時点では無かったフォルダ（Add）が残っていれば、自分が作ったものとして記録する。
+        # 記録しないと、次から「管理外」扱いになって更新も削除もできなくなるため
+        if [ "${PL_ACTION[$i]}" = "Add" ] && [ -e "$dst" ]; then state_set "${PL_TARGET[$i]}" "${PL_NAME[$i]}" own; fi
+        continue
+      fi
     fi
     state_set "${PL_TARGET[$i]}" "${PL_NAME[$i]}" own
     count_action "${PL_ACTION[$i]}"
   done
 
-  # --- 公開スキル（スキルごとに、出す先をまとめて 1 回呼ぶ） ---
+  # --- 公開スキルの追加（スキルごとに、出す先をまとめて 1 回呼ぶ） ---
   local -A done_group=()
-  local ready=""
-  local action name gkey
+  local ready="" name ok
   for i in "${!PL_ACTION[@]}"; do
-    action="${PL_ACTION[$i]}"
     name="${PL_NAME[$i]}"
-    if [ "${PL_TYPE[$i]}" != "npx" ]; then continue; fi
-    if [ "$action" != "Add" ] && [ "$action" != "Remove" ]; then continue; fi
-    gkey="$action"$'\t'"$name"
-    if [ -n "${done_group[$gkey]+x}" ]; then continue; fi
-    done_group[$gkey]=1
+    if [ "${PL_TYPE[$i]}" != "npx" ] || [ "${PL_ACTION[$i]}" != "Add" ]; then continue; fi
+    if [ -n "${done_group[$name]+x}" ]; then continue; fi
+    done_group[$name]=1
 
-    local -a members=() agent_args=() targets_txt=()
+    local -a members=() targets=()
     for j in "${!PL_ACTION[@]}"; do
-      if [ "${PL_TYPE[$j]}" = "npx" ] && [ "${PL_ACTION[$j]}" = "$action" ] && [ "${PL_NAME[$j]}" = "$name" ]; then
+      if [ "${PL_TYPE[$j]}" = "npx" ] && [ "${PL_ACTION[$j]}" = "Add" ] && [ "${PL_NAME[$j]}" = "$name" ]; then
         members+=("$j")
-        agent_args+=(-a "${TARGET_AGENT[${PL_TARGET[$j]}]}")
-        targets_txt+=("${PL_TARGET[$j]}")
+        targets+=("${PL_TARGET[$j]}")
       fi
     done
-    label="$name（$(IFS=','; echo "${targets_txt[*]}" | sed 's/,/, /g')）"
+    label="$name（$(join_targets "${targets[@]}")）"
 
     if [ -z "$ready" ]; then
       if npx_available; then ready=1; else ready=0; fi
@@ -436,14 +467,9 @@ run_plan() {
     fi
 
     local -a args=()
-    if [ "$action" = "Add" ]; then
-      args=(add "${PL_SOURCE[$i]}" --skill "$name" -g "${agent_args[@]}" -y --copy)
-      info "追加（npx）: $label"
-    else
-      args=(remove "$name" -g "${agent_args[@]}" -y)
-      info "削除（npx）: $label"
-    fi
-
+    npx_add_args "${PL_SOURCE[$i]}" "$name" "${targets[@]}"
+    info "追加（npx）: $label"
+    ok=1
     if [ "$DRYRUN" -eq 1 ]; then
       info "       npx skills ${args[*]}"
     else
@@ -451,25 +477,89 @@ run_plan() {
       run_npx "${args[@]}" || code=$?
       if [ "$code" -ne 0 ]; then
         warn "$label: npx skills が失敗しました（終了コード $code）"
-        C_ERROR=$((C_ERROR + ${#members[@]}))
-        continue
+        ok=0
       fi
     fi
 
     for j in "${members[@]}"; do
-      if [ "$action" = "Add" ]; then
+      if [ "$ok" -eq 1 ]; then
         state_set "${PL_TARGET[$j]}" "$name" npx
+        count_action Add
       else
-        # npx はスキル単位で管理しているので、ほかのツールがまだ使っていると判断すると
-        # フォルダを残すことがある。記録にある（＝こちらが --copy で入れた）フォルダは自分で消す
-        if [ "$DRYRUN" -eq 0 ]; then remove_skill_dir "$(target_dir "${PL_TARGET[$j]}")/$name"; fi
-        state_unset "${PL_TARGET[$j]}" "$name"
+        C_ERROR=$((C_ERROR + 1))
+        # 途中までコピーされたフォルダがあれば、自分が作ったものとして記録する
+        if [ -e "$(target_dir "${PL_TARGET[$j]}")/$name" ]; then state_set "${PL_TARGET[$j]}" "$name" npx; fi
       fi
-      count_action "$action"
     done
   done
 }
 
+# 出す先の一覧を「claude, agents」の形にする
+join_targets() {
+  local out="" t
+  for t in "$@"; do
+    if [ -n "$out" ]; then out="$out, $t"; else out="$t"; fi
+  done
+  printf '%s' "$out"
+}
+
+# npx skills add の引数を args 配列に入れる（出す先ごとに -a <agent>。--copy でコピーして置いてもらう）
+#   使い方: local -a args=(); npx_add_args <source> <name> <target>...
+npx_add_args() {
+  local source="$1" name="$2" t
+  shift 2
+  args=(add "$source" --skill "$name" -g)
+  for t in "$@"; do args+=(-a "${TARGET_AGENT[$t]}"); done
+  args+=(-y --copy)
+}
+
+# 公開スキルの更新（--update）
+#   npx skills update は、台帳の出す先を無視して見つけたツール全部に入れ直すので使わない。
+#   記録にある公開スキルを、記録した出す先だけを指定して add し直す（add は上書きで更新される）
+update_npx() {
+  step "公開スキルを更新"
+  local key name target i source
+  local -a names=()
+  local -A targets_of=()
+  for key in "${NEW_ORDER[@]+"${NEW_ORDER[@]}"}"; do
+    if [ -z "${NEW_STATE[$key]+x}" ] || [ "${NEW_STATE[$key]}" != "npx" ]; then continue; fi
+    target="${key%%$'\t'*}"
+    name="${key#*$'\t'}"
+    if [ -z "${targets_of[$name]+x}" ]; then names+=("$name"); targets_of[$name]=""; fi
+    targets_of[$name]="${targets_of[$name]} $target"
+  done
+
+  if [ "${#names[@]}" -eq 0 ]; then
+    skip "更新する公開スキルはありません"
+    return 0
+  fi
+  if ! npx_available; then
+    warn "npx が見つからないので更新を飛ばします（Node.js を入れてください）"
+    return 0
+  fi
+
+  for name in "${names[@]}"; do
+    source=""
+    for i in "${!SK_NAME[@]}"; do
+      if [ "${SK_NAME[$i]}" = "$name" ] && [ "${SK_TYPE[$i]}" = "npx" ]; then source="${SK_SOURCE[$i]}"; break; fi
+    done
+    if [ -z "$source" ]; then
+      skip "$name: 台帳に見つからないので更新を飛ばします"
+      continue
+    fi
+    local -a ts=() args=()
+    read -r -a ts <<< "${targets_of[$name]}"
+    npx_add_args "$source" "$name" "${ts[@]}"
+    info "更新（npx）: $name（$(join_targets "${ts[@]}")）"
+    if [ "$DRYRUN" -eq 1 ]; then
+      info "       npx skills ${args[*]}"
+      continue
+    fi
+    local code=0
+    run_npx "${args[@]}" || code=$?
+    if [ "$code" -ne 0 ]; then warn "$name: 更新に失敗しました（終了コード $code）"; else ok "$name を更新しました"; fi
+  done
+}
 save_installed() {
   mkdir -p "$STATE_DIR"
   : > "$STATE_DIR/installed.txt"
@@ -509,8 +599,11 @@ main() {
     warn "台帳に読めない行があったので、今回は片付け（削除）をしません"
   fi
 
-  # (2) 入れるスキルを決める
+  # (2) 入れるスキルを決める（記録に読めない行があれば、その回は片付けをしない）
   load_state
+  if [ "$STATE_ERRORS" -eq 1 ]; then
+    warn "記録ファイルに読めない行があったので、今回は片付け（削除）をしません"
+  fi
   if [ "$SELECT" -eq 1 ]; then
     if [ "${#SK_NAME[@]}" -eq 0 ]; then
       skip "台帳にスキルがないので、選ぶものがありません"
@@ -525,19 +618,7 @@ main() {
   run_plan
 
   # (4) 公開スキルの更新（--update のときだけ）
-  if [ "$UPDATE" -eq 1 ]; then
-    step "公開スキルを更新"
-    if ! npx_available; then
-      warn "npx が見つからないので更新を飛ばします（Node.js を入れてください）"
-    elif [ "$DRYRUN" -eq 1 ]; then
-      info "npx skills update -g -y"
-    else
-      local code=0
-      run_npx update -g -y || code=$?
-      if [ "$code" -ne 0 ]; then warn "npx skills update が失敗しました（終了コード $code）"; else ok "公開スキルを更新しました"; fi
-    fi
-  fi
-
+  if [ "$UPDATE" -eq 1 ]; then update_npx; fi
   # (5) 記録を保存して、結果を表示する
   if [ "$DRYRUN" -eq 0 ]; then save_installed; fi
   ok "追加 $C_ADD / 更新 $C_UPDATE / 削除 $C_REMOVE / スキップ $C_SKIP / エラー $C_ERROR"
